@@ -29,8 +29,8 @@ Build a minimal voice loop that records a short microphone clip, transcribes it 
 Microphone (sounddevice)
   → fixed-duration capture @ 16 kHz mono float32
   → write temp WAV (16-bit PCM)
-  → whisper-cli.exe -m models/ggml-base.en.bin -f <wav> -nt -np
-  → parse stdout transcript
+  → whisper-cli.exe -m models/ggml-base.en.bin -f <wav> -nt
+  → parse stdout transcript (strip non-text lines if the binary still prints banners)
   → print "You said: ..."
   → delete temp WAV
   → wait for Enter again (Ctrl+C to exit)
@@ -59,8 +59,8 @@ Config lives in `config.py` (paths, sample rate, record seconds, optional input 
 1. User presses Enter.
 2. `sounddevice.rec` captures `RECORD_SECONDS` at `SAMPLE_RATE` mono.
 3. Audio written to a temp `.wav` (16-bit PCM).
-4. `subprocess.run` invokes whisper-cli with model path and WAV path; flags include `-nt` (no timestamps) and `-np` (no prints beyond transcript where supported).
-5. Stdout parsed into a clean transcript string.
+4. `subprocess.run` invokes whisper-cli with model path, WAV path, and `-nt` (no timestamps). Optional quiet flags may be added if the downloaded binary supports them.
+5. Stdout parsed into a clean transcript string (ignore banner/timing lines if present).
 6. Print `You said: <transcript>` (or `(no speech detected)` if empty).
 7. Delete temp WAV; loop until Ctrl+C.
 
