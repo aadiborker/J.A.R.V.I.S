@@ -18,6 +18,7 @@ from config import (
     UI_WS_HOST,
     UI_WS_PORT,
     VAD_NO_SPEECH_SECONDS,
+    WORKING_ACK,
 )
 from llm.client import ensure_api_key
 from llm.tool_loop import chat_with_tools
@@ -35,6 +36,7 @@ from tools.browser_tools import (
     youtube_play,
     youtube_search,
 )
+from tools.memory_store import build_system_prompt, list_memories, recall, remember
 from tools.system_tools import (
     get_system_status,
     lock_pc,
@@ -144,11 +146,9 @@ def make_jarvis_greeting(
     spoken_long = format_date_spoken(now)
     time_str = format_time_display(now)
 
-    print_text = (
-        f"Good {part} Sir. Today is {date_str}. Time is {time_str}."
-    )
+    print_text = f"Good {part.lower()}. {date_str}, {time_str}."
     speech_text = (
-        f"Good {part} Sir. Today is the {spoken_long}. Time is {time_str}."
+        f"Good {part.lower()}. Today is the {spoken_long}. It's {time_str}."
     )
     return print_text, speech_text
 
@@ -174,6 +174,11 @@ def _finish_turn_after_media(timer_manager: TimerManager) -> bool:
     return False
 
 
+def _refresh_system_prompt(messages: list[dict[str, str]]) -> None:
+    if messages and messages[0].get("role") == "system":
+        messages[0]["content"] = build_system_prompt(SYSTEM_PROMPT)
+
+
 def handle_turn(
     messages: list[dict[str, str]],
     text: str,
@@ -186,7 +191,7 @@ def handle_turn(
     """
     if is_session_end(text):
         log_user(text)
-        farewell = "Alright, I'll be here when you need me."
+        farewell = "Standing by."
         jarvis_typed(farewell)
         try:
             speak(farewell)
@@ -202,6 +207,8 @@ def handle_turn(
     if gated is not None:
         print_text, speech_text = gated
         messages.append({"role": "assistant", "content": print_text})
+        # Memory fast-paths may have changed stored facts.
+        _refresh_system_prompt(messages)
         jarvis_typed(print_text)
         if speech_text:
             try:
@@ -212,6 +219,16 @@ def handle_turn(
             finally:
                 clear_status()
         return _finish_turn_after_media(timer_manager)
+
+    ack = (WORKING_ACK or "").strip()
+    if ack:
+        try:
+            set_status("[SPEAK] Ack...")
+            speak(ack)
+        except Exception as exc:  # noqa: BLE001
+            log_error(f"TTS error (ack): {exc}")
+        finally:
+            clear_status()
 
     set_status("[THINK] Thinking...")
     try:
@@ -411,7 +428,52 @@ def handle_turn(
                     },
                 },
             },
+            {
+                "type": "function",
+                "function": {
+                    "name": "remember",
+                    "description": (
+                        "Save a short lasting fact about the user (name, city, preference). "
+                        "Use a simple snake_case key."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "key": {"type": "string", "description": "e.g. name, city"},
+                            "value": {"type": "string", "description": "Fact to store"},
+                        },
+                        "required": ["key", "value"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "recall",
+                    "description": "Look up one saved user fact by key.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "key": {"type": "string"},
+                        },
+                        "required": ["key"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "list_memories",
+                    "description": "List all saved user facts.",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            },
         ]
+
+        def _remember_and_refresh(**kwargs):
+            out = remember(**kwargs)
+            _refresh_system_prompt(messages)
+            return out
 
         tool_registry = {
             "get_time": lambda **_kwargs: get_time(),
@@ -427,9 +489,13 @@ def handle_turn(
             "lock_pc": lambda **_kwargs: lock_pc(),
             "take_screenshot": lambda **_kwargs: take_screenshot(),
             "set_brightness": set_brightness,
+            "remember": _remember_and_refresh,
+            "recall": recall,
+            "list_memories": lambda **_kwargs: list_memories(),
         }
 
         reply = chat_with_tools(messages, tools, tool_registry)
+        _refresh_system_prompt(messages)
     except Exception as exc:  # noqa: BLE001
         clear_status()
         log_error(f"Groq error: {exc}")
@@ -489,7 +555,7 @@ def run_conversation_session(
             if elapsed >= SESSION_SILENCE_SECONDS:
                 log_system("Silence timeout — back to wake word.")
                 try:
-                    speak("I'll go quiet for now. Say hey jarvis when you need me.")
+                    speak("Going quiet. Say hey jarvis when you need me.")
                 except Exception as exc:  # noqa: BLE001
                     log_error(f"TTS error: {exc}")
                 return
@@ -537,7 +603,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     messages: list[dict[str, str]] = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": build_system_prompt(SYSTEM_PROMPT)},
     ]
 
     def on_network_transition(online: bool) -> None:

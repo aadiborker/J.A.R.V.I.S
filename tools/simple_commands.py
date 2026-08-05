@@ -12,6 +12,7 @@ from tools.browser_tools import (
     youtube_play,
     youtube_search,
 )
+from tools.memory_store import list_memories, recall, remember
 from tools.system_tools import (
     get_system_status,
     lock_pc,
@@ -93,6 +94,23 @@ _SCREENSHOT = re.compile(
     re.I,
 )
 
+_MY_NAME_IS = re.compile(
+    r"^\s*(?:my\s+name\s+is|i(?:'m|\s+am)|call\s+me)\s+(?P<name>[A-Za-z][A-Za-z\-']{0,40})\s*[.!?]*\s*$",
+    re.I,
+)
+_WHAT_NAME = re.compile(
+    r"^\s*(?:what(?:'s|\s+is)\s+my\s+name|do\s+you\s+know\s+my\s+name)\s*[.!?]*\s*$",
+    re.I,
+)
+_REMEMBER_THAT = re.compile(
+    r"^\s*remember\s+that\s+(?:my\s+)?(?P<key>[A-Za-z][A-Za-z0-9_\s]{0,40}?)\s+is\s+(?P<value>.+?)\s*$",
+    re.I,
+)
+_WHAT_REMEMBER = re.compile(
+    r"^\s*(?:what\s+do\s+you\s+remember|list\s+(?:my\s+)?(?:memories|facts)|what\s+have\s+you\s+saved)\s*[.!?]*\s*$",
+    re.I,
+)
+
 # Apps that must not steal browser / youtube open phrases
 _BROWSERISH_APP_NAMES = frozenset(
     {
@@ -139,6 +157,20 @@ def try_handle_simple(text: str, timer_manager) -> Optional[tuple[str, str]]:
         timer_manager.set_timer(seconds=seconds, label="", announce=False)
         announcement = format_t_minus(seconds)
         return announcement, announcement
+
+    name_set = _MY_NAME_IS.match(stripped)
+    if name_set:
+        return _msg_reply(remember("name", name_set.group("name").strip()))
+
+    if _WHAT_NAME.match(stripped):
+        return _msg_reply(recall("name"))
+
+    rem = _REMEMBER_THAT.match(stripped)
+    if rem:
+        return _msg_reply(remember(rem.group("key").strip(), rem.group("value").strip()))
+
+    if _WHAT_REMEMBER.match(stripped):
+        return _msg_reply(list_memories())
 
     if _SYSTEM_STATUS.match(stripped):
         return _msg_reply(get_system_status())

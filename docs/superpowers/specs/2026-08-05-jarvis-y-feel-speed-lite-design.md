@@ -57,18 +57,21 @@ Priority locked: **all of the above, speed first.** RAM approach: **Lite mode** 
 - Tighten `SYSTEM_PROMPT` toward Iron Man–adjacent Jarvis: short, dry, confident, spoken English
 - Optional address style later (e.g. name from memory); default no forced “Sir”
 - Brief working acks when a turn will take noticeable time (“On it.”) — only if latency still warrants it after Wave A
+- **Status (2026-08-05):** implemented — prompt + greeting without Sir + `WORKING_ACK` before Groq turns
 
 ## Wave C — Presence
 
 - When HUD is running: clearer idle / listening / thinking / speaking states
 - Keep light SFX on wake and “got it” (already partially present)
 - Out of scope for first cut: full cinematic redesign
+- **Status (2026-08-05):** implemented — processing state, friendly status copy, captions, idle breathe, wake/heard SFX
 
 ## Wave D — Anticipation
 
 - Small JSON memory file (e.g. `data/memory.json`): display name, a few prefs
 - Load into system prompt or tool `remember` / `recall` — details in a follow-on plan
 - Not a full RAG brain
+- **Status (2026-08-05):** implemented — `tools/memory_store.py`, Groq tools + voice fast-paths, prompt injection
 
 ## Non-goals (this initiative)
 

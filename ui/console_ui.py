@@ -64,11 +64,11 @@ def _infer_state(text: str) -> str:
     lowered = text.lower()
     if "error" in lowered:
         return "error"
-    if "[speak]" in lowered or "speaking" in lowered:
+    if "[speak]" in lowered or "speaking" in lowered or "[speak] ack" in lowered:
         return "speaking"
-    if "[think]" in lowered or "thinking" in lowered:
-        return "thinking"
     if "[stt]" in lowered or "transcrib" in lowered or "got it" in lowered:
+        return "processing"
+    if "[think]" in lowered or "thinking" in lowered:
         return "thinking"
     if "[idle]" in lowered or "hey jarvis" in lowered:
         return "idle"

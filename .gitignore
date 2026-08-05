@@ -6,7 +6,7 @@ venv/
 vendor/
 models/
 *.wav
-tmp/
+data/memory.json
 .pytest_cache/
 .mypy_cache/
 desktop/node_modules/

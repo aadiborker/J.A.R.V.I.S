@@ -4,6 +4,7 @@ const powerPill = document.getElementById("powerPill");
 const statusLine = document.getElementById("statusLine");
 const ringWrap = document.getElementById("ringWrap");
 const stateBadge = document.getElementById("stateBadge");
+const holoCaption = document.getElementById("holoCaption");
 const transcript = document.getElementById("transcript");
 const btnMin = document.getElementById("btnMin");
 const btnClose = document.getElementById("btnClose");
@@ -25,9 +26,28 @@ let timerTick = null;
 const STATE_LABELS = {
   idle: "STANDBY",
   listening: "LISTEN",
+  processing: "GOT IT",
   thinking: "THINK",
   speaking: "SPEAK",
   error: "FAULT",
+};
+
+const STATE_CAPTIONS = {
+  idle: "AWAITING WAKE",
+  listening: "MIC OPEN",
+  processing: "TRANSCRIBING",
+  thinking: "ANALYZING",
+  speaking: "VOICE OUT",
+  error: "FAULT",
+};
+
+const STATUS_FRIENDLY = {
+  idle: "Standing by — say hey jarvis.",
+  listening: "Listening…",
+  processing: "Got it — working it out…",
+  thinking: "Thinking…",
+  speaking: "Speaking…",
+  error: "Something went wrong.",
 };
 
 const ORB_LABELS = [
@@ -110,13 +130,41 @@ function setUiState(state) {
   uiState = state || "idle";
   ringWrap.dataset.state = uiState;
   stateBadge.textContent = STATE_LABELS[uiState] || uiState.toUpperCase();
+  if (holoCaption) {
+    holoCaption.textContent = STATE_CAPTIONS[uiState] || "CORE INTERFACE";
+  }
+}
+
+function friendlyStatus(detail, state) {
+  const raw = String(detail || "").trim();
+  const lower = raw.toLowerCase();
+  if (lower.includes("got it") || lower.includes("[stt]")) {
+    return STATUS_FRIENDLY.processing;
+  }
+  if (lower.includes("[idle]") || lower.includes("hey jarvis")) {
+    return STATUS_FRIENDLY.idle;
+  }
+  if (lower.includes("[session]") || lower.includes("listening for your")) {
+    return STATUS_FRIENDLY.listening;
+  }
+  if (lower.includes("[think]")) {
+    return STATUS_FRIENDLY.thinking;
+  }
+  if (lower.includes("[speak]")) {
+    return STATUS_FRIENDLY.speaking;
+  }
+  // Strip internal tags for display when possible
+  const cleaned = raw.replace(/\[[A-Z]+\]\s*/g, "").trim();
+  if (cleaned && cleaned.length < 80) return cleaned;
+  return STATUS_FRIENDLY[state] || raw || "—";
 }
 
 function setStatus(text, state) {
   statusLine.style.animation = "none";
   void statusLine.offsetWidth;
   statusLine.style.animation = "";
-  statusLine.textContent = text || "—";
+  const st = state || "idle";
+  statusLine.textContent = friendlyStatus(text, st);
   if (state) setUiState(state);
 }
 
@@ -138,6 +186,8 @@ function energyProfile(state) {
       return { speed: 2.8, amp: 1, glow: 1.2, spin: 1.6 };
     case "listening":
       return { speed: 1.6, amp: 0.65, glow: 1.0, spin: 1.1 };
+    case "processing":
+      return { speed: 2.0, amp: 0.55, glow: 1.05, spin: 1.4 };
     case "thinking":
       return { speed: 2.2, amp: 0.5, glow: 1.1, spin: 1.8 };
     case "error":
@@ -419,6 +469,7 @@ function playStateSfx(state) {
   if (!state || state === lastSfxState) return;
   lastSfxState = state;
   if (state === "listening") playSfx("listen");
+  else if (state === "processing") playSfx("heard");
   else if (state === "thinking") playSfx("think");
   else if (state === "speaking") playSfx("speak");
   else if (state === "error") playSfx("error");
@@ -432,23 +483,25 @@ function handleEvent(evt) {
       playSfx("boot");
       break;
     case "status":
-      setStatus(evt.detail || evt.state || "", evt.state || "idle");
       {
         const detail = String(evt.detail || "").toLowerCase();
+        let state = evt.state || "idle";
         if (detail.includes("[stt]") || detail.includes("got it")) {
-          playSfx("heard");
-        } else {
-          playStateSfx(evt.state || "idle");
+          state = "processing";
         }
+        setStatus(evt.detail || state, state);
+        playStateSfx(state);
       }
       break;
     case "transcript":
       addLine(evt.role || "system", evt.text || "");
       break;
     case "wake":
-      setStatus(`Wake word detected (score=${Number(evt.score || 0).toFixed(2)})`, "listening");
-      lastSfxState = "listening";
+      setStatus("Wake word locked — go ahead.", "listening");
+      lastSfxState = "";
       playSfx("wake");
+      setUiState("listening");
+      lastSfxState = "listening";
       break;
     case "timer":
       if (evt.action === "start") {
