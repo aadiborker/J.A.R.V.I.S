@@ -16,3 +16,5 @@ SYSTEM_PROMPT = (
     "Keep answers concise and conversational so they work well when spoken aloud later. "
     "Do not mention that you are an AI model unless asked."
 )
+
+PIPER_MODEL_PATH = ROOT_DIR / "models" / "piper" / "en_US-ryan-medium.onnx"

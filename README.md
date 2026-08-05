@@ -1,12 +1,12 @@
-# J.A.R.V.I.S — Phase 1–2 (Local STT + Groq Chat)
+# J.A.R.V.I.S — Phase 1–3 (Local STT + Groq + Piper TTS)
 
-Records a short microphone clip, transcribes with whisper.cpp (`base.en`), sends text to Groq, prints the reply.
+Records a short microphone clip, transcribes with whisper.cpp, replies via Groq, speaks with Piper.
 
 ## Prerequisites
 
 - Windows x64
 - Python 3.10+
-- Working microphone
+- Working microphone and speakers/earphones
 - Free Groq API key from https://console.groq.com/keys
 
 ## One-time setup
@@ -19,18 +19,19 @@ pip install -r requirements.txt
 
 2. Whisper binary: download [whisper-bin-x64.zip (v1.9.1)](https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.1/whisper-bin-x64.zip), copy `whisper-cli.exe` + DLLs into `vendor/whisper/`.
 
-3. Model:
+3. Whisper model:
 
 ```powershell
 Invoke-WebRequest -Uri "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin" -OutFile "models\ggml-base.en.bin"
 ```
 
-4. Create `.env` in the project root (copy from `.env.example`):
+4. Piper voice:
 
 ```powershell
-Copy-Item .env.example .env
-# Then edit .env and set GROQ_API_KEY to your real key
+python -m piper.download_voices en_US-ryan-medium --download-dir models\piper
 ```
+
+5. Create `.env` from `.env.example` and set `GROQ_API_KEY`.
 
 ## Run
 
@@ -38,7 +39,7 @@ Copy-Item .env.example .env
 python main.py
 ```
 
-Press Enter, speak, wait for `You said:` and `Jarvis:`.
+Press Enter, speak, wait for printed `Jarvis:` and spoken reply.
 
 ## Tests
 
