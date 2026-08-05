@@ -1,8 +1,9 @@
 from pathlib import Path
 
+import numpy as np
 import pytest
 
-from stt.transcribe import ensure_whisper_ready, parse_whisper_stdout
+from stt.transcribe import ensure_whisper_ready, parse_whisper_stdout, write_wav
 
 
 def test_parse_whisper_stdout_strips_noise():
@@ -36,3 +37,11 @@ def test_ensure_whisper_ready_missing_model(monkeypatch, tmp_path):
     monkeypatch.setattr("stt.transcribe.WHISPER_MODEL", missing)
     with pytest.raises(FileNotFoundError, match="model"):
         ensure_whisper_ready()
+
+
+def test_write_wav_creates_file(tmp_path):
+    path = tmp_path / "sample.wav"
+    audio = np.zeros(16000, dtype=np.float32)  # 1 second silence
+    write_wav(path, audio, sample_rate=16000)
+    assert path.is_file()
+    assert path.stat().st_size > 44  # header + data
