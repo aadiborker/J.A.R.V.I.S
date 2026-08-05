@@ -35,3 +35,17 @@ WAKEWORD_THRESHOLD = 0.4
 WAKEWORD_CHUNK_SAMPLES = 1280  # 80 ms at 16 kHz
 WAKEWORD_INFERENCE_FRAMEWORK = "onnx"
 
+# After wake word: keep chatting without re-waking until goodbye or silence timeout
+SESSION_SILENCE_SECONDS = 30
+SESSION_END_PHRASES = (
+    "goodbye",
+    "good bye",
+    "bye jarvis",
+    "stop listening",
+    "that's all",
+    "thats all",
+    "go to sleep",
+    "never mind",
+    "nevermind",
+)
+
