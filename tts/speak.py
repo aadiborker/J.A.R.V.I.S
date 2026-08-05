@@ -4,9 +4,15 @@ from pathlib import Path
 
 import numpy as np
 import sounddevice as sd
-from piper import PiperVoice
+from piper import PiperVoice, SynthesisConfig
 
-from config import PIPER_MODEL_PATH
+from config import (
+    PIPER_LENGTH_SCALE,
+    PIPER_MODEL_PATH,
+    PIPER_NOISE_SCALE,
+    PIPER_NOISE_W_SCALE,
+    PIPER_VOLUME,
+)
 
 _voice: PiperVoice | None = None
 
@@ -17,13 +23,13 @@ def ensure_piper_ready() -> None:
     if not model.is_file():
         raise FileNotFoundError(
             f"Piper voice model not found at {model}. "
-            "Download with: python -m piper.download_voices en_US-ryan-medium "
+            "Download with: python -m piper.download_voices en_US-lessac-medium "
             "--download-dir models/piper"
         )
     if not config.is_file():
         raise FileNotFoundError(
             f"Piper voice config not found at {config}. "
-            "Re-download en_US-ryan-medium into models/piper."
+            "Re-download en_US-lessac-medium into models/piper."
         )
 
 
@@ -35,6 +41,16 @@ def get_voice() -> PiperVoice:
     return _voice
 
 
+def _synthesis_config() -> SynthesisConfig:
+    return SynthesisConfig(
+        length_scale=PIPER_LENGTH_SCALE,
+        noise_scale=PIPER_NOISE_SCALE,
+        noise_w_scale=PIPER_NOISE_W_SCALE,
+        normalize_audio=True,
+        volume=PIPER_VOLUME,
+    )
+
+
 def synthesize_audio(text: str, *, voice: PiperVoice | None = None) -> tuple[np.ndarray, int]:
     """Return mono float32 audio and sample rate for the given text."""
     cleaned = (text or "").strip()
@@ -44,7 +60,7 @@ def synthesize_audio(text: str, *, voice: PiperVoice | None = None) -> tuple[np.
     piper_voice = voice if voice is not None else get_voice()
     chunks: list[np.ndarray] = []
     sample_rate = 22050
-    for chunk in piper_voice.synthesize(cleaned):
+    for chunk in piper_voice.synthesize(cleaned, syn_config=_synthesis_config()):
         sample_rate = int(chunk.sample_rate)
         audio = np.asarray(chunk.audio_float_array, dtype=np.float32).reshape(-1)
         if audio.size:

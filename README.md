@@ -28,8 +28,10 @@ Invoke-WebRequest -Uri "https://huggingface.co/ggerganov/whisper.cpp/resolve/mai
 4. Piper voice:
 
 ```powershell
-python -m piper.download_voices en_US-ryan-medium --download-dir models\piper
+python -m piper.download_voices en_US-lessac-medium --download-dir models\piper
 ```
+
+Voice expressiveness is tunable in `config.py` via `PIPER_LENGTH_SCALE`, `PIPER_NOISE_SCALE`, and `PIPER_NOISE_W_SCALE`.
 
 5. Create `.env` from `.env.example` and set `GROQ_API_KEY`.
 

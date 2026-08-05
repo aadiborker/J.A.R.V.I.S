@@ -21,8 +21,9 @@ def test_synthesize_audio_empty_text():
 
 def test_synthesize_audio_concatenates_chunks():
     class FakeVoice:
-        def synthesize(self, text):
+        def synthesize(self, text, syn_config=None):
             assert text == "hello"
+            assert syn_config is not None
             yield SimpleNamespace(
                 sample_rate=22050,
                 audio_float_array=np.array([0.1, 0.2], dtype=np.float32),

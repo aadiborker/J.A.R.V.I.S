@@ -12,9 +12,19 @@ INPUT_DEVICE = None  # default system input; set to an int device id to override
 
 GROQ_MODEL = "llama-3.1-8b-instant"
 SYSTEM_PROMPT = (
-    "You are Jarvis, a helpful personal voice assistant. "
-    "Keep answers concise and conversational so they work well when spoken aloud later. "
+    "You are Jarvis, a warm personal voice assistant speaking out loud. "
+    "Reply in short, natural spoken English: use contractions (I'm, you'll, that's), "
+    "everyday wording, and light personality. Prefer 1-3 short sentences. "
+    "Avoid bullet lists, markdown, URLs, and stiff formal phrasing unless asked. "
     "Do not mention that you are an AI model unless asked."
 )
 
-PIPER_MODEL_PATH = ROOT_DIR / "models" / "piper" / "en_US-ryan-medium.onnx"
+# Lessac tends to sound more natural than Ryan for conversational replies.
+PIPER_MODEL_PATH = ROOT_DIR / "models" / "piper" / "en_US-lessac-medium.onnx"
+
+# Piper expressiveness (higher noise ≈ less flat; length_scale > 1 ≈ slightly slower)
+PIPER_LENGTH_SCALE = 1.1
+PIPER_NOISE_SCALE = 0.8
+PIPER_NOISE_W_SCALE = 0.9
+PIPER_VOLUME = 1.0
+
