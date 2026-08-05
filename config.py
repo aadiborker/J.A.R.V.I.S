@@ -29,8 +29,9 @@ PIPER_NOISE_W_SCALE = 0.9
 PIPER_VOLUME = 1.0
 
 # openWakeWord (pretrained "hey jarvis")
+# Speak clearly: "hey jarvis" then pause. Lower threshold if it rarely triggers.
 WAKEWORD_MODEL = "hey jarvis"
-WAKEWORD_THRESHOLD = 0.5
+WAKEWORD_THRESHOLD = 0.4
 WAKEWORD_CHUNK_SAMPLES = 1280  # 80 ms at 16 kHz
 WAKEWORD_INFERENCE_FRAMEWORK = "onnx"
 
