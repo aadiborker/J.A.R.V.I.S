@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+vendor/
+models/
+*.wav
+tmp/
+.pytest_cache/
+.mypy_cache/
