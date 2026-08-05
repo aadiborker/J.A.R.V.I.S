@@ -51,3 +51,33 @@ def test_chat_with_tools_executes_tool_calls_and_returns_final_content():
     reply = chat_with_tools(messages, tools, tool_registry, client=FakeClient())
     assert "3:05" in reply
 
+
+def test_chat_with_tools_handles_null_arguments():
+    tool_call = SimpleNamespace(
+        id="call_null",
+        function=SimpleNamespace(name="get_time", arguments="null"),
+    )
+    msg1 = SimpleNamespace(content=None, tool_calls=[tool_call])
+    resp1 = SimpleNamespace(choices=[SimpleNamespace(message=msg1)])
+    msg2 = SimpleNamespace(content="It is noon.", tool_calls=None)
+    resp2 = SimpleNamespace(choices=[SimpleNamespace(message=msg2)])
+
+    class FakeChatCompletions:
+        def __init__(self):
+            self.calls = 0
+
+        def create(self, **kwargs):
+            self.calls += 1
+            return resp1 if self.calls == 1 else resp2
+
+    class FakeClient:
+        chat = SimpleNamespace(completions=FakeChatCompletions())
+
+    reply = chat_with_tools(
+        [{"role": "user", "content": "time"}],
+        [{"type": "function", "function": {"name": "get_time"}}],
+        {"get_time": lambda **_: {"time": "12:00"}},
+        client=FakeClient(),
+    )
+    assert "noon" in reply.lower()
+

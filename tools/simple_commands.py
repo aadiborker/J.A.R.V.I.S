@@ -4,6 +4,7 @@ import re
 from typing import Optional
 
 from tools.time_tools import get_time
+from tools.timer_tools import format_t_minus
 
 
 _TIME_PATTERNS = (
@@ -18,7 +19,11 @@ _TIMER_PATTERN = re.compile(
 )
 
 
-def try_handle_simple(text: str, timer_manager) -> Optional[str]:
+def try_handle_simple(text: str, timer_manager) -> Optional[tuple[str, str]]:
+    """Fast-path local handlers.
+
+    Returns (print_text, speech_text) or None.
+    """
     if not text or not text.strip():
         return None
 
@@ -26,7 +31,9 @@ def try_handle_simple(text: str, timer_manager) -> Optional[str]:
 
     if any(p.search(stripped) for p in _TIME_PATTERNS):
         payload = get_time()
-        return f"It's {payload['time']}."
+        print_text = f"It's {payload['time']} on {payload['date']}."
+        speech_text = f"It's {payload['time']} on the {payload['date_spoken']}."
+        return print_text, speech_text
 
     m = _TIMER_PATTERN.search(stripped)
     if m:
@@ -39,8 +46,9 @@ def try_handle_simple(text: str, timer_manager) -> Optional[str]:
         else:
             seconds = num * 3600
 
-        timer_manager.set_timer(seconds=seconds, label="")
-        return f"Timer set for {num} {unit}."
+        timer_manager.set_timer(seconds=seconds, label="", announce=False)
+        announcement = format_t_minus(seconds)
+        return announcement, announcement
 
     return None
 

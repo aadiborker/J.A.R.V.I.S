@@ -19,6 +19,16 @@ Say **hey jarvis**, then speak your request. Local wake word + STT + TTS; Groq f
 
 ## Easy launch (no typing `python main.py`)
 
+### HUD (Electron UI)
+
+```bat
+scripts\start_jarvis_ui.bat
+```
+
+First run installs Electron (`npm install` in `desktop/`). The HUD starts Python with `--ui-ws` and shows status + transcript animations.
+
+Terminal-only (no HUD): `python main.py` or `scripts\start_jarvis.bat`.
+
 ### Desktop shortcut
 
 ```powershell
@@ -39,7 +49,9 @@ Disable later:
 powershell -ExecutionPolicy Bypass -File ".\scripts\uninstall_autostart.ps1"
 ```
 
-A console window stays open while Jarvis runs (close it or Ctrl+C to stop).
+HUD mode: closing the window hides to the **system tray** (right-click tray → Quit to fully stop). A Python console may also appear while the backend runs.
+
+Terminal-only: close that console or Ctrl+C to stop.
 
 ## Manual run
 

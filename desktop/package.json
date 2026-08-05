@@ -1,0 +1,13 @@
+{
+  "name": "jarvis-hud",
+  "version": "0.1.0",
+  "private": true,
+  "description": "J.A.R.V.I.S Electron HUD",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^35.0.0"
+  }
+}

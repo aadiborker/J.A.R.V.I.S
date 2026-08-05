@@ -53,6 +53,9 @@ def chat_with_tools(
                     args = json.loads(args_raw)
                 except json.JSONDecodeError:
                     args = {}
+                if not isinstance(args, dict):
+                    # Models sometimes send null / a bare value instead of an object.
+                    args = {}
 
                 fn = tool_registry.get(name)
                 if fn is None:

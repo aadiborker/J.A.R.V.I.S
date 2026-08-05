@@ -41,6 +41,7 @@ def test_synthesize_audio_concatenates_chunks():
 def test_speak_plays_and_waits(monkeypatch):
     calls: list[tuple] = []
 
+    monkeypatch.setattr(speak_mod, "TTS_PREFER_EDGE", False)
     monkeypatch.setattr(
         speak_mod,
         "synthesize_audio",
@@ -51,3 +52,76 @@ def test_speak_plays_and_waits(monkeypatch):
 
     speak_mod.speak("hi")
     assert calls == [("play", 2, 22050), ("wait",)]
+
+
+def test_speak_prefers_edge_when_enabled(monkeypatch):
+    edge_calls: list[str] = []
+    piper_calls: list[str] = []
+
+    monkeypatch.setattr(speak_mod, "TTS_PREFER_EDGE", True)
+    monkeypatch.setattr(speak_mod, "is_online", lambda: True)
+    monkeypatch.setattr(
+        speak_mod,
+        "_speak_edge",
+        lambda text: edge_calls.append(text),
+    )
+    monkeypatch.setattr(
+        speak_mod,
+        "_speak_piper",
+        lambda text, voice=None: piper_calls.append(text),
+    )
+
+    speak_mod.speak("hello sir")
+    assert edge_calls == ["hello sir"]
+    assert piper_calls == []
+
+
+def test_speak_falls_back_to_piper_when_edge_fails(monkeypatch):
+    piper_calls: list[str] = []
+
+    monkeypatch.setattr(speak_mod, "TTS_PREFER_EDGE", True)
+    monkeypatch.setattr(speak_mod, "is_online", lambda: True)
+    monkeypatch.setattr(
+        speak_mod,
+        "_speak_edge",
+        lambda text: (_ for _ in ()).throw(RuntimeError("offline")),
+    )
+    monkeypatch.setattr(
+        speak_mod,
+        "_speak_piper",
+        lambda text, voice=None: piper_calls.append(text),
+    )
+
+    speak_mod.speak("fallback please")
+    assert piper_calls == ["fallback please"]
+
+
+def test_speak_skips_edge_when_offline(monkeypatch):
+    edge_calls: list[str] = []
+    piper_calls: list[str] = []
+
+    monkeypatch.setattr(speak_mod, "TTS_PREFER_EDGE", True)
+    monkeypatch.setattr(speak_mod, "is_online", lambda: False)
+    monkeypatch.setattr(
+        speak_mod, "_speak_edge", lambda text: edge_calls.append(text)
+    )
+    monkeypatch.setattr(
+        speak_mod,
+        "_speak_piper",
+        lambda text, voice=None: piper_calls.append(text),
+    )
+
+    speak_mod.speak("offline line")
+    assert edge_calls == []
+    assert piper_calls == ["offline line"]
+
+
+def test_speak_empty_text_is_noop(monkeypatch):
+    called = {"edge": False, "piper": False}
+    monkeypatch.setattr(speak_mod, "TTS_PREFER_EDGE", True)
+    monkeypatch.setattr(speak_mod, "is_online", lambda: True)
+    monkeypatch.setattr(speak_mod, "_speak_edge", lambda text: called.__setitem__("edge", True))
+    monkeypatch.setattr(speak_mod, "_speak_piper", lambda text, voice=None: called.__setitem__("piper", True))
+
+    speak_mod.speak("   ")
+    assert called == {"edge": False, "piper": False}

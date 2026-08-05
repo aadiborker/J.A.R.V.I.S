@@ -7,3 +7,6 @@ groq>=0.11.0
 piper-tts>=1.4.0
 openwakeword>=0.6.0
 colorama>=0.4.6
+edge-tts>=6.1.0
+miniaudio>=1.59
+websockets>=12.0

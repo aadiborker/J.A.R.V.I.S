@@ -16,7 +16,9 @@ SYSTEM_PROMPT = (
     "Reply in short, natural spoken English: use contractions (I'm, you'll, that's), "
     "everyday wording, and light personality. Prefer 1-3 short sentences. "
     "Avoid bullet lists, markdown, URLs, and stiff formal phrasing unless asked. "
-    "Do not mention that you are an AI model unless asked."
+    "Do not mention that you are an AI model unless asked. "
+    "When a timer tool returns an announcement, the user already heard the T-minus "
+    "countdown aloud — give only a brief acknowledgment, don't repeat the countdown."
 )
 
 # Lessac tends to sound more natural than Ryan for conversational replies.
@@ -27,6 +29,12 @@ PIPER_LENGTH_SCALE = 1.1
 PIPER_NOISE_SCALE = 0.8
 PIPER_NOISE_W_SCALE = 0.9
 PIPER_VOLUME = 1.0
+
+# Hybrid TTS: Edge neural (online) preferred; Piper is offline fallback.
+# Swap EDGE_VOICE to "en-GB-ThomasNeural" if you prefer a different British male.
+TTS_PREFER_EDGE = True
+EDGE_VOICE = "en-GB-RyanNeural"
+EDGE_TTS_TIMEOUT_SECONDS = 15
 
 # openWakeWord (pretrained "hey jarvis")
 # Speak clearly: "hey jarvis" then pause. Lower threshold if it rarely triggers.
@@ -57,4 +65,14 @@ CONSOLE_NO_COLOR = False
 CONSOLE_SHOW_TIMESTAMPS = True
 CONSOLE_BELL_ON_WAKE = True
 CONSOLE_BELL_ON_TIMER = True
+
+# Electron HUD WebSocket bridge (enabled via `python main.py --ui-ws`)
+UI_WS_HOST = "127.0.0.1"
+UI_WS_PORT = 8765
+
+# WAN connectivity (lower-modules mode when offline)
+NETWORK_CHECK_INTERVAL_SECONDS = 20
+NETWORK_PROBE_TIMEOUT_SECONDS = 2.0
+NETWORK_PROBE_HOSTS = (("1.1.1.1", 443), ("8.8.8.8", 443))
+NETWORK_DEBOUNCE_CHECKS = 2
 

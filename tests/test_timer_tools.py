@@ -18,8 +18,8 @@ def test_timer_manager_speaks_and_pauses_wakeword():
         wakeword_pause_event=paused,
     )
 
-    # Fire quickly
-    mgr.set_timer(seconds=0.2, label="test")
+    # Fire quickly without startup announcement (tested separately via format_t_minus).
+    mgr.set_timer(seconds=0.2, label="test", announce=False)
 
     t0 = time.monotonic()
     while time.monotonic() - t0 < 2.0:
@@ -29,4 +29,12 @@ def test_timer_manager_speaks_and_pauses_wakeword():
 
     assert spokens, "Timer did not fire in time"
     assert not paused.is_set(), "wakeword_pause_event should be cleared after speaking"
+
+
+def test_format_t_minus():
+    from tools.timer_tools import format_t_minus
+
+    assert format_t_minus(90) == "T minus 1 minute 30 seconds"
+    assert format_t_minus(60) == "T minus 1 minute"
+    assert format_t_minus(5) == "T minus 5 seconds"
 

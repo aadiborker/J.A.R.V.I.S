@@ -1,24 +1,46 @@
-# Installs J.A.R.V.I.S to start when you log into Windows (Startup folder shortcut).
+# Installs J.A.R.V.I.S Electron HUD to start at Windows logon (Task Scheduler).
 # No admin rights required. Run uninstall_autostart.ps1 to remove.
 $ErrorActionPreference = "Stop"
 
-$batPath = Join-Path $PSScriptRoot "start_jarvis.bat"
+$taskName = "J.A.R.V.I.S"
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$startup = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup"
-$shortcutPath = Join-Path $startup "J.A.R.V.I.S.lnk"
+$desktopApp = Join-Path $projectRoot "desktop"
+$electronExe = Join-Path $desktopApp "node_modules\electron\dist\electron.exe"
+$startupLnk = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup\J.A.R.V.I.S.lnk"
 
-if (-not (Test-Path $batPath)) {
-    throw "Missing launcher: $batPath"
+if (-not (Test-Path $electronExe)) {
+    throw "Missing Electron binary: $electronExe. Run npm install in desktop first."
 }
 
-$shell = New-Object -ComObject WScript.Shell
-$shortcut = $shell.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = $batPath
-$shortcut.WorkingDirectory = $projectRoot
-$shortcut.WindowStyle = 1
-$shortcut.Description = "Auto-start J.A.R.V.I.S on login"
-$shortcut.Save()
+if (Test-Path $startupLnk) {
+    Remove-Item $startupLnk -Force
+    Write-Host "Removed delayed Startup shortcut: $startupLnk"
+}
 
-Write-Host "Autostart enabled: $shortcutPath"
-Write-Host "J.A.R.V.I.S will open a console window when you log in."
+$action = New-ScheduledTaskAction -Execute $electronExe -Argument "." -WorkingDirectory $desktopApp
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$trigger.Delay = "PT0S"
+
+$settings = New-ScheduledTaskSettingsSet `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries `
+    -StartWhenAvailable `
+    -ExecutionTimeLimit ([TimeSpan]::Zero) `
+    -MultipleInstances IgnoreNew
+
+$principal = New-ScheduledTaskPrincipal `
+    -UserId $env:USERNAME `
+    -LogonType Interactive `
+    -RunLevel Limited
+
+Register-ScheduledTask `
+    -TaskName $taskName `
+    -Action $action `
+    -Trigger $trigger `
+    -Settings $settings `
+    -Principal $principal `
+    -Force | Out-Null
+
+Write-Host "Autostart enabled (Task Scheduler): $taskName"
+Write-Host "Electron HUD will open as soon as you log in."
 Write-Host "To disable: powershell -ExecutionPolicy Bypass -File `"$PSScriptRoot\uninstall_autostart.ps1`""

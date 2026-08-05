@@ -4,6 +4,7 @@ import sys
 import datetime
 import time
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 from dotenv import load_dotenv
 
@@ -12,15 +13,25 @@ from config import (
     SESSION_END_PHRASES,
     SESSION_SILENCE_SECONDS,
     SYSTEM_PROMPT,
+    UI_WS_HOST,
+    UI_WS_PORT,
 )
 from llm.client import ensure_api_key
 from llm.tool_loop import chat_with_tools
 from stt.transcribe import ensure_whisper_ready, transcribe_microphone
-from tts.speak import ensure_piper_ready, speak
+from tts.speak import ensure_piper_ready, get_voice, speak
 from wakeword.listen import ensure_wakeword_ready, wait_for_wake_word
-from tools.simple_commands import try_handle_simple
+from tools.offline_gate import handle_offline_or_simple
 from tools.time_tools import get_time
 from tools.timer_tools import TimerManager
+from net.connectivity import (
+    OFFLINE_ANNOUNCE,
+    ONLINE_ANNOUNCE,
+    NetworkMonitor,
+    boot_status_line,
+    check_internet,
+    set_online,
+)
 from ui.console_ui import (
     Style,
     THEME,
@@ -32,6 +43,23 @@ from ui.console_ui import (
     maybe_bell,
     set_status,
 )
+from ui.ws_bridge import enable_bridge, emit_ui
+
+
+def warmup_models() -> None:
+    """Load Piper + wake-word models in parallel (biggest startup cost)."""
+    ensure_whisper_ready()
+    ensure_api_key()
+
+    def _piper() -> None:
+        ensure_piper_ready()
+        get_voice()  # preload so first speak is instant
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        piper_f = pool.submit(_piper)
+        wake_f = pool.submit(ensure_wakeword_ready)
+        piper_f.result()
+        wake_f.result()
 
 
 def type_out(text: str, *, delay_s: float = 0.015) -> None:
@@ -55,6 +83,7 @@ def jarvis_typed(text: str) -> None:
     else:
         print("Jarvis: ", end="", flush=True)
     type_out(text)
+    emit_ui({"type": "transcript", "role": "jarvis", "text": text})
 
 
 def make_jarvis_greeting(
@@ -63,11 +92,16 @@ def make_jarvis_greeting(
     """Create a JARVIS-style greeting in IST.
 
     Returns: (print_text, speech_text)
+    Print shows numeric date (05-08-2026); speech says the full date aloud.
     """
-    # Avoid zoneinfo tz database dependency (tzdata) by using a fixed IST offset.
-    ist_tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30), name="IST")
-    now = now_ist or datetime.datetime.now(datetime.timezone.utc).astimezone(ist_tz)
+    from tools.time_tools import (
+        format_date_display,
+        format_date_spoken,
+        format_time_display,
+        _now_ist,
+    )
 
+    now = _now_ist(now_ist)
     hour = now.hour
     if 5 <= hour < 12:
         part = "Morning"
@@ -78,18 +112,15 @@ def make_jarvis_greeting(
     else:
         part = "Night"
 
-    date_str = now.strftime("%d-%m-%Y")
-    time_str = now.strftime("%I:%M %p").lstrip("0")
-
-    dd, mm, yyyy = date_str.split("-")
-    # Speak the date with spaces instead of hyphens to avoid TTS pause artifacts.
-    speech_date = f"{dd} {mm} {yyyy}"
+    date_str = format_date_display(now)
+    spoken_long = format_date_spoken(now)
+    time_str = format_time_display(now)
 
     print_text = (
         f"Good {part} Sir. Today is {date_str}. Time is {time_str}."
     )
     speech_text = (
-        f"Good {part} Sir. Today is {speech_date}. Time is {time_str}."
+        f"Good {part} Sir. Today is the {spoken_long}. Time is {time_str}."
     )
     return print_text, speech_text
 
@@ -122,15 +153,16 @@ def handle_turn(
     log_user(text)
     messages.append({"role": "user", "content": text})
 
-    # Regex/local fast-path for simple actions (saves LLM round-trips).
-    simple_reply = try_handle_simple(text, timer_manager)
-    if simple_reply is not None:
-        messages.append({"role": "assistant", "content": simple_reply})
-        jarvis_typed(simple_reply)
-        if simple_reply:
+    # Local fast-path and offline lower-modules gate (skips Groq when offline).
+    gated = handle_offline_or_simple(text, timer_manager)
+    if gated is not None:
+        print_text, speech_text = gated
+        messages.append({"role": "assistant", "content": print_text})
+        jarvis_typed(print_text)
+        if speech_text:
             try:
                 set_status("[SPEAK] Speaking...")
-                speak(simple_reply)
+                speak(speech_text)
             except Exception as exc:  # noqa: BLE001
                 log_error(f"TTS error: {exc}")
             finally:
@@ -144,7 +176,11 @@ def handle_turn(
                 "type": "function",
                 "function": {
                     "name": "get_time",
-                    "description": "Get current local time",
+                    "description": (
+                        "Get current IST time and date. Returns time, date as DD-MM-YYYY "
+                        "(e.g. 05-08-2026), and date_spoken. In your reply, show the numeric "
+                        "date and say the date_spoken form aloud."
+                    ),
                     "parameters": {"type": "object", "properties": {}},
                 },
             },
@@ -166,7 +202,7 @@ def handle_turn(
         ]
 
         tool_registry = {
-            "get_time": lambda: get_time(),
+            "get_time": lambda **_kwargs: get_time(),
             "set_timer": timer_manager.set_timer,
         }
 
@@ -238,18 +274,32 @@ def run_conversation_session(
             return
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    args = list(sys.argv[1:] if argv is None else argv)
+    ui_ws = "--ui-ws" in args
+
     load_dotenv()
+    if ui_ws:
+        try:
+            enable_bridge(host=UI_WS_HOST, port=UI_WS_PORT)
+            log_system(f"UI bridge on ws://{UI_WS_HOST}:{UI_WS_PORT}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"UI bridge failed: {exc}", file=sys.stderr)
+            return 1
+
+    print("J.A.R.V.I.S booting...", flush=True)
+    set_status("[BOOT] Loading models...")
 
     try:
-        ensure_whisper_ready()
-        ensure_api_key()
-        ensure_piper_ready()
-        ensure_wakeword_ready()
+        warmup_models()
     except (FileNotFoundError, RuntimeError, OSError, ValueError) as exc:
+        clear_status()
         print(exc, file=sys.stderr)
+        emit_ui({"type": "error", "message": str(exc)})
         return 1
 
+    clear_status()
+    emit_ui({"type": "ready"})
     wakeword_pause_event = threading.Event()
     timer_manager = TimerManager(
         speak_fn=speak,
@@ -260,14 +310,57 @@ def main() -> int:
         {"role": "system", "content": SYSTEM_PROMPT},
     ]
 
-    greeting_print, greeting_speech = make_jarvis_greeting()
-    print(greeting_print)
+    def on_network_transition(online: bool) -> None:
+        line = ONLINE_ANNOUNCE if online else OFFLINE_ANNOUNCE
+        log_system(line)
+        emit_ui({"type": "network", "online": online})
+        emit_ui({"type": "transcript", "role": "system", "text": line})
+        wakeword_pause_event.set()
+        try:
+            set_status("[SPEAK] Network...")
+            speak(line)
+        except Exception as exc:  # noqa: BLE001
+            log_error(f"TTS error (network): {exc}")
+        finally:
+            clear_status()
+            wakeword_pause_event.clear()
+
+    initial_online = check_internet()
+    set_online(initial_online)
+    emit_ui({"type": "network", "online": initial_online})
+
+    monitor = NetworkMonitor(on_transition=on_network_transition)
+    monitor.start()
+
+    # First boot / launch cue before the daily greeting.
+    boot_line = boot_status_line(initial_online)
+    print(boot_line, flush=True)
+    emit_ui({"type": "transcript", "role": "system", "text": boot_line})
+    wakeword_pause_event.set()
     try:
+        set_status("[SPEAK] Boot...")
+        speak(boot_line)
+    except Exception as exc:  # noqa: BLE001
+        log_error(f"TTS error (boot): {exc}")
+    finally:
+        clear_status()
+        wakeword_pause_event.clear()
+
+    greeting_print, greeting_speech = make_jarvis_greeting()
+    print(greeting_print, flush=True)
+    emit_ui({"type": "transcript", "role": "jarvis", "text": greeting_print})
+    log_system("Ready. Say 'hey jarvis' to start talking (Ctrl+C to quit).")
+
+    # Speak greeting before wake-word loop so desktop launch always greets aloud.
+    wakeword_pause_event.set()
+    try:
+        set_status("[SPEAK] Greeting...")
         speak(greeting_speech)
     except Exception as exc:  # noqa: BLE001
         log_error(f"TTS error (greeting): {exc}")
-
-    log_system("Ready. Say 'hey jarvis' to start talking (Ctrl+C to quit).")
+    finally:
+        clear_status()
+        wakeword_pause_event.clear()
 
     while True:
         try:
