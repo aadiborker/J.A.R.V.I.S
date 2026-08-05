@@ -6,6 +6,8 @@ import uuid
 from dataclasses import dataclass
 from typing import Callable
 
+from ui.console_ui import log_timer
+
 
 @dataclass(frozen=True)
 class _TimerSpec:
@@ -45,6 +47,7 @@ class TimerManager:
         # Pause wakeword scoring while we speak the reminder
         self._wakeword_pause_event.set()
         try:
+            log_timer(reminder)
             self._speak_fn(reminder)
         finally:
             self._wakeword_pause_event.clear()

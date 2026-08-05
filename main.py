@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import datetime
 import time
 import threading
 
@@ -20,6 +21,77 @@ from wakeword.listen import ensure_wakeword_ready, wait_for_wake_word
 from tools.simple_commands import try_handle_simple
 from tools.time_tools import get_time
 from tools.timer_tools import TimerManager
+from ui.console_ui import (
+    Style,
+    THEME,
+    clear_status,
+    log_error,
+    log_system,
+    log_thinking,
+    log_user,
+    maybe_bell,
+    set_status,
+)
+
+
+def type_out(text: str, *, delay_s: float = 0.015) -> None:
+    """Console-friendly type-out effect (keeps console readable, not slow)."""
+    # Color the typed output so replies look like "Jarvis" instead of plain text.
+    if THEME.jarvis:
+        print(THEME.jarvis, end="", flush=True)
+    for ch in text:
+        print(ch, end="", flush=True)
+        # Keep the delay small; if speech is long, this still should feel quick.
+        time.sleep(delay_s)
+    if THEME.jarvis:
+        print(Style.RESET_ALL, end="", flush=True)
+    print()
+
+
+def jarvis_typed(text: str) -> None:
+    """Print the Jarvis prefix and run the type-out effect consistently."""
+    if THEME.jarvis:
+        print(f"{THEME.jarvis}Jarvis:{Style.RESET_ALL} ", end="", flush=True)
+    else:
+        print("Jarvis: ", end="", flush=True)
+    type_out(text)
+
+
+def make_jarvis_greeting(
+    *, now_ist: datetime.datetime | None = None
+) -> tuple[str, str]:
+    """Create a JARVIS-style greeting in IST.
+
+    Returns: (print_text, speech_text)
+    """
+    # Avoid zoneinfo tz database dependency (tzdata) by using a fixed IST offset.
+    ist_tz = datetime.timezone(datetime.timedelta(hours=5, minutes=30), name="IST")
+    now = now_ist or datetime.datetime.now(datetime.timezone.utc).astimezone(ist_tz)
+
+    hour = now.hour
+    if 5 <= hour < 12:
+        part = "Morning"
+    elif 12 <= hour < 17:
+        part = "Afternoon"
+    elif 17 <= hour < 22:
+        part = "Evening"
+    else:
+        part = "Night"
+
+    date_str = now.strftime("%d-%m-%Y")
+    time_str = now.strftime("%I:%M %p").lstrip("0")
+
+    dd, mm, yyyy = date_str.split("-")
+    # Speak the date with spaces instead of hyphens to avoid TTS pause artifacts.
+    speech_date = f"{dd} {mm} {yyyy}"
+
+    print_text = (
+        f"Good {part} Sir. Today is {date_str}. Time is {time_str}."
+    )
+    speech_text = (
+        f"Good {part} Sir. Today is {speech_date}. Time is {time_str}."
+    )
+    return print_text, speech_text
 
 
 def is_session_end(text: str) -> bool:
@@ -38,32 +110,34 @@ def handle_turn(
     Returns False if the session should end (goodbye phrase).
     """
     if is_session_end(text):
-        print(f"You said: {text}")
+        log_user(text)
         farewell = "Alright, I'll be here when you need me."
-        print(f"Jarvis: {farewell}")
+        jarvis_typed(farewell)
         try:
             speak(farewell)
         except Exception as exc:  # noqa: BLE001
-            print(f"TTS error: {exc}", file=sys.stderr)
+            log_error(f"TTS error: {exc}")
         return False
 
-    print(f"You said: {text}")
+    log_user(text)
     messages.append({"role": "user", "content": text})
 
     # Regex/local fast-path for simple actions (saves LLM round-trips).
     simple_reply = try_handle_simple(text, timer_manager)
     if simple_reply is not None:
         messages.append({"role": "assistant", "content": simple_reply})
-        print(f"Jarvis: {simple_reply}")
+        jarvis_typed(simple_reply)
         if simple_reply:
-            print("Speaking...")
             try:
+                set_status("[SPEAK] Speaking...")
                 speak(simple_reply)
             except Exception as exc:  # noqa: BLE001
-                print(f"TTS error: {exc}", file=sys.stderr)
+                log_error(f"TTS error: {exc}")
+            finally:
+                clear_status()
         return True
 
-    print("Thinking...")
+    set_status("[THINK] Thinking...")
     try:
         tools = [
             {
@@ -98,19 +172,23 @@ def handle_turn(
 
         reply = chat_with_tools(messages, tools, tool_registry)
     except Exception as exc:  # noqa: BLE001
-        print(f"Groq error: {exc}", file=sys.stderr)
+        clear_status()
+        log_error(f"Groq error: {exc}")
         messages.pop()
         return True
 
     messages.append({"role": "assistant", "content": reply})
-    print(f"Jarvis: {reply}")
+    clear_status()
+    jarvis_typed(reply)
 
     if reply:
-        print("Speaking...")
         try:
+            set_status("[SPEAK] Speaking...")
             speak(reply)
         except Exception as exc:  # noqa: BLE001
-            print(f"TTS error: {exc}", file=sys.stderr)
+            log_error(f"TTS error: {exc}")
+        finally:
+            clear_status()
     return True
 
 
@@ -120,42 +198,43 @@ def run_conversation_session(
     timer_manager: TimerManager,
 ) -> None:
     """Multi-turn chat without wake word until goodbye or silence timeout."""
-    print(
-        f"Conversation open — speak normally. "
-        f"Say goodbye, or stay quiet ~{SESSION_SILENCE_SECONDS}s to end."
+    log_system(
+        f"Conversation open — speak normally. Say goodbye, or stay quiet ~{SESSION_SILENCE_SECONDS}s to end."
     )
     silence_started: float | None = None
 
     while True:
-        print("Listening for your next request...")
+        set_status("[SESSION] Listening for your next request...")
         try:
             text = transcribe_microphone()
         except KeyboardInterrupt:
             raise
         except Exception as exc:  # noqa: BLE001
-            print(f"Error: {exc}", file=sys.stderr)
+            clear_status()
+            log_error(f"Error: {exc}")
             continue
 
+        clear_status()
         if not text:
-            print("You said: (no speech detected)")
+            log_user("(no speech detected)")
             now = time.monotonic()
             if silence_started is None:
                 silence_started = now
             elapsed = now - silence_started + float(RECORD_SECONDS)
-            print(f"  silence ~{elapsed:.0f}s / {SESSION_SILENCE_SECONDS}s")
+            log_system(f"Silence ~{elapsed:.0f}s / {SESSION_SILENCE_SECONDS}s")
             if elapsed >= SESSION_SILENCE_SECONDS:
-                print("Silence timeout — back to wake word.")
+                log_system("Silence timeout — back to wake word.")
                 try:
                     speak("I'll go quiet for now. Say hey jarvis when you need me.")
                 except Exception as exc:  # noqa: BLE001
-                    print(f"TTS error: {exc}", file=sys.stderr)
+                    log_error(f"TTS error: {exc}")
                 return
             continue
 
         silence_started = None
         keep_going = handle_turn(messages, text, timer_manager=timer_manager)
         if not keep_going:
-            print("Session ended — back to wake word.")
+            log_system("Session ended — back to wake word.")
             return
 
 
@@ -181,13 +260,25 @@ def main() -> int:
         {"role": "system", "content": SYSTEM_PROMPT},
     ]
 
-    print("Ready. Say 'hey jarvis' to start talking (Ctrl+C to quit).")
+    greeting_print, greeting_speech = make_jarvis_greeting()
+    print(greeting_print)
+    try:
+        speak(greeting_speech)
+    except Exception as exc:  # noqa: BLE001
+        log_error(f"TTS error (greeting): {exc}")
+
+    log_system("Ready. Say 'hey jarvis' to start talking (Ctrl+C to quit).")
 
     while True:
         try:
-            print("Listening for 'hey jarvis'...")
-            score = wait_for_wake_word(wakeword_pause_event=wakeword_pause_event)
-            print(f"Wake word detected (score={score:.2f}).")
+            set_status("[IDLE] Listening for 'hey jarvis'...")
+            score = wait_for_wake_word(
+                wakeword_pause_event=wakeword_pause_event,
+                show_scores=False,
+            )
+            clear_status()
+            maybe_bell("wake")
+            log_system(f"[WAKE] Wake word detected (score={score:.2f}).")
         except KeyboardInterrupt:
             print("\nBye.")
             return 0

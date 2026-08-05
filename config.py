@@ -49,3 +49,12 @@ SESSION_END_PHRASES = (
     "nevermind",
 )
 
+# ---- Console UI options ----
+#
+# These affect only terminal presentation (colors/status/timestamps/bell),
+# not any audio, STT, LLM, or tool-calling behavior.
+CONSOLE_NO_COLOR = False
+CONSOLE_SHOW_TIMESTAMPS = True
+CONSOLE_BELL_ON_WAKE = True
+CONSOLE_BELL_ON_TIMER = True
+
