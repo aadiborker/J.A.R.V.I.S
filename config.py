@@ -76,3 +76,7 @@ NETWORK_PROBE_TIMEOUT_SECONDS = 2.0
 NETWORK_PROBE_HOSTS = (("1.1.1.1", 443), ("8.8.8.8", 443))
 NETWORK_DEBOUNCE_CHECKS = 2
 
+# Power / charge status (boot report + plug/unplug announcements)
+POWER_CHECK_INTERVAL_SECONDS = 15
+POWER_DEBOUNCE_CHECKS = 2
+

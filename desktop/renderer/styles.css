@@ -219,6 +219,32 @@ body {
   border-color: #e0a84a;
 }
 
+.power {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 2px;
+  border: 1px solid var(--cyan-dim);
+  color: var(--steel);
+  -webkit-app-region: no-drag;
+}
+
+.power[data-state="charging"] {
+  color: var(--cyan);
+  border-color: var(--cyan);
+}
+
+.power[data-state="battery"] {
+  color: #e0a84a;
+  border-color: #e0a84a;
+}
+
+.power[data-state="na"] {
+  color: var(--steel);
+  opacity: 0.7;
+}
+
 .win-controls {
   display: flex;
   gap: 6px;

@@ -1,5 +1,6 @@
 const connPill = document.getElementById("connPill");
 const wanPill = document.getElementById("wanPill");
+const powerPill = document.getElementById("powerPill");
 const statusLine = document.getElementById("statusLine");
 const ringWrap = document.getElementById("ringWrap");
 const stateBadge = document.getElementById("stateBadge");
@@ -86,6 +87,23 @@ function setWan(online) {
   if (!wanPill) return;
   wanPill.textContent = online ? "WAN Online" : "WAN Lower modules";
   wanPill.dataset.state = online ? "online" : "offline";
+}
+
+function setPower(evt) {
+  if (!powerPill) return;
+  if (!evt || evt.available === false) {
+    powerPill.textContent = "PWR N/A";
+    powerPill.dataset.state = "na";
+    return;
+  }
+  const pct = evt.percent == null ? "—" : `${evt.percent}%`;
+  if (evt.charging) {
+    powerPill.textContent = `PWR ${pct} AC`;
+    powerPill.dataset.state = "charging";
+  } else {
+    powerPill.textContent = `PWR ${pct}`;
+    powerPill.dataset.state = "battery";
+  }
 }
 
 function setUiState(state) {
@@ -443,6 +461,9 @@ function handleEvent(evt) {
       break;
     case "network":
       setWan(!!evt.online);
+      break;
+    case "power":
+      setPower(evt);
       break;
     default:
       break;

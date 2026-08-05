@@ -32,6 +32,14 @@ from net.connectivity import (
     check_internet,
     set_online,
 )
+from system.power import (
+    PowerMonitor,
+    emit_power_ui_payload,
+    format_boot_power_line,
+    format_power_transition_line,
+    get_power_status,
+    pick_power_joke,
+)
 from ui.console_ui import (
     Style,
     THEME,
@@ -345,6 +353,43 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         clear_status()
         wakeword_pause_event.clear()
+
+    def on_power_transition(charging: bool, status) -> None:
+        line = format_power_transition_line(
+            charging=charging, percent=status.percent
+        )
+        log_system(line)
+        emit_ui(emit_power_ui_payload(status))
+        emit_ui({"type": "transcript", "role": "system", "text": line})
+        wakeword_pause_event.set()
+        try:
+            set_status("[SPEAK] Power...")
+            speak(line)
+        except Exception as exc:  # noqa: BLE001
+            log_error(f"TTS error (power): {exc}")
+        finally:
+            clear_status()
+            wakeword_pause_event.clear()
+
+    power_status = get_power_status()
+    emit_ui(emit_power_ui_payload(power_status))
+    power_line = format_boot_power_line(power_status, pick_power_joke())
+    print(power_line, flush=True)
+    emit_ui({"type": "transcript", "role": "system", "text": power_line})
+    wakeword_pause_event.set()
+    try:
+        set_status("[SPEAK] Power...")
+        speak(power_line)
+    except Exception as exc:  # noqa: BLE001
+        log_error(f"TTS error (power boot): {exc}")
+    finally:
+        clear_status()
+        wakeword_pause_event.clear()
+
+    if power_status.available and power_status.charging is not None:
+        power_monitor = PowerMonitor(on_transition=on_power_transition)
+        power_monitor.seed(power_status)
+        power_monitor.start()
 
     greeting_print, greeting_speech = make_jarvis_greeting()
     print(greeting_print, flush=True)
