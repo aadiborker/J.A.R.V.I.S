@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Callable
+import threading
 
 import numpy as np
 import sounddevice as sd
@@ -82,6 +83,7 @@ def wait_for_wake_word(
     read_chunk: Callable[[], np.ndarray] | None = None,
     on_detect: Callable[[], None] | None = play_wakeup_chime,
     show_scores: bool = True,
+    wakeword_pause_event: threading.Event | None = None,
 ) -> float:
     """
     Block until the wake word score exceeds threshold.
@@ -99,6 +101,8 @@ def wait_for_wake_word(
     if read_chunk is not None:
         while True:
             frame = _to_int16_mono(read_chunk())
+            if wakeword_pause_event is not None and wakeword_pause_event.is_set():
+                continue
             prediction = oww.predict(frame)
             score = _score_for_wakeword(prediction)
             if score >= limit:
@@ -123,6 +127,8 @@ def wait_for_wake_word(
             if overflowed and show_scores:
                 print("Wake-word mic overflow (audio glitch); continuing...")
             frame = _to_int16_mono(raw)
+            if wakeword_pause_event is not None and wakeword_pause_event.is_set():
+                continue
             prediction = oww.predict(frame)
             score = _score_for_wakeword(prediction)
             best = max(best, score)
