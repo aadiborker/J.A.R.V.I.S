@@ -1,0 +1,38 @@
+from pathlib import Path
+
+import pytest
+
+from stt.transcribe import ensure_whisper_ready, parse_whisper_stdout
+
+
+def test_parse_whisper_stdout_strips_noise():
+    raw = """
+whisper_init_from_file_with_params_no_state: loading model
+system_info: n_threads = 4
+hello jarvis what time is it
+"""
+    assert parse_whisper_stdout(raw) == "hello jarvis what time is it"
+
+
+def test_parse_whisper_stdout_empty():
+    assert parse_whisper_stdout("whisper_init...\nsystem_info: x\n") == ""
+
+
+def test_ensure_whisper_ready_missing_bin(monkeypatch, tmp_path):
+    missing = tmp_path / "nope.exe"
+    model = tmp_path / "model.bin"
+    model.write_bytes(b"x")
+    monkeypatch.setattr("stt.transcribe.WHISPER_BIN", missing)
+    monkeypatch.setattr("stt.transcribe.WHISPER_MODEL", model)
+    with pytest.raises(FileNotFoundError, match="whisper-cli"):
+        ensure_whisper_ready()
+
+
+def test_ensure_whisper_ready_missing_model(monkeypatch, tmp_path):
+    binary = tmp_path / "whisper-cli.exe"
+    binary.write_bytes(b"x")
+    missing = tmp_path / "missing.bin"
+    monkeypatch.setattr("stt.transcribe.WHISPER_BIN", binary)
+    monkeypatch.setattr("stt.transcribe.WHISPER_MODEL", missing)
+    with pytest.raises(FileNotFoundError, match="model"):
+        ensure_whisper_ready()
