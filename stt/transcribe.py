@@ -92,17 +92,18 @@ def record_audio(seconds: float | None = None) -> Path:
 
 def transcribe(wav_path: Path | str) -> str:
     ensure_whisper_ready()
-    wav_path = Path(wav_path)
+    wav_path = Path(wav_path).resolve()
     if not wav_path.is_file():
         raise FileNotFoundError(f"Audio file not found: {wav_path}")
 
     cmd = [
         str(WHISPER_BIN),
         "-m",
-        str(WHISPER_MODEL),
+        str(WHISPER_MODEL.resolve()),
         "-f",
         str(wav_path),
         "-nt",
+        "-np",
         "-l",
         "en",
     ]
