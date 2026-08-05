@@ -14,18 +14,52 @@ Say **hey jarvis**, then speak your request. Local wake word + STT + TTS; Groq f
 1. `pip install -r requirements.txt`
 2. Whisper: put `whisper-cli.exe` + DLLs in `vendor/whisper/`, and `ggml-base.en.bin` in `models/`
 3. Piper: `python -m piper.download_voices en_US-lessac-medium --download-dir models\piper`
-4. Wake word models download automatically on first run (`openwakeword.utils.download_models`)
+4. Wake word models download automatically on first run
 5. Copy `.env.example` → `.env` and set `GROQ_API_KEY`
 
-## Run
+## Easy launch (no typing `python main.py`)
+
+### Desktop shortcut
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ".\scripts\create_desktop_shortcut.ps1"
+```
+
+Then double-click **J.A.R.V.I.S** on your Desktop.
+
+### Start on Windows login (optional)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ".\scripts\install_autostart.ps1"
+```
+
+Disable later:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ".\scripts\uninstall_autostart.ps1"
+```
+
+A console window stays open while Jarvis runs (close it or Ctrl+C to stop).
+
+## Manual run
 
 ```powershell
 python main.py
 ```
 
-Say **hey jarvis** (you'll hear a short chime), then speak for ~5 seconds.
+Or:
 
-Tune sensitivity with `WAKEWORD_THRESHOLD` in `config.py` (default `0.5`; lower = easier to trigger).
+```powershell
+.\scripts\start_jarvis.bat
+```
+
+## Usage
+
+1. Say **hey jarvis** (chime)
+2. Keep talking turn-by-turn without repeating the wake word
+3. Say **goodbye** / **stop listening**, or stay quiet ~30s, to end the session
+
+Tune `WAKEWORD_THRESHOLD` and `SESSION_SILENCE_SECONDS` in `config.py`.
 
 ## Tests
 
