@@ -14,10 +14,10 @@ from config import (
     IDLE_SLEEP_SECONDS,
     SESSION_END_PHRASES,
     SESSION_SILENCE_SECONDS,
+    STT_LISTEN_SECONDS,
     SYSTEM_PROMPT,
     UI_WS_HOST,
     UI_WS_PORT,
-    VAD_NO_SPEECH_SECONDS,
     WORKING_ACK,
 )
 from llm.client import ensure_api_key
@@ -534,7 +534,9 @@ def run_conversation_session(
     silence_started: float | None = None
 
     while True:
-        set_status("[SESSION] Listening for your next request...")
+        set_status(
+            f"[SESSION] Listening — speak now (about {STT_LISTEN_SECONDS:.0f} seconds)..."
+        )
         try:
             text = transcribe_microphone(on_recording_done=_on_mic_recording_done)
         except KeyboardInterrupt:
@@ -550,7 +552,7 @@ def run_conversation_session(
             now = time.monotonic()
             if silence_started is None:
                 silence_started = now
-            elapsed = now - silence_started + float(VAD_NO_SPEECH_SECONDS)
+            elapsed = now - silence_started + float(STT_LISTEN_SECONDS)
             log_system(f"Silence ~{elapsed:.0f}s / {SESSION_SILENCE_SECONDS}s")
             if elapsed >= SESSION_SILENCE_SECONDS:
                 log_system("Silence timeout — back to wake word.")
@@ -754,7 +756,7 @@ def main(argv: list[str] | None = None) -> int:
             set_status("[IDLE] Listening for 'hey jarvis'...")
             score = wait_for_wake_word(
                 wakeword_pause_event=wakeword_pause_event,
-                show_scores=False,
+                show_scores=True,
             )
             clear_status()
             _leave_idle_sleep()

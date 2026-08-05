@@ -7,7 +7,6 @@ import numpy as np
 import sounddevice as sd
 
 from config import (
-    CHANNELS,
     SAMPLE_RATE,
     VAD_CHUNK_MS,
     VAD_MAX_SECONDS,
@@ -16,7 +15,7 @@ from config import (
     VAD_SILENCE_MS,
     VAD_SPEECH_RMS,
 )
-from stt.mic_profile import resolve_mic_settings
+from stt.mic_profile import apply_mic_gain, resolve_mic_settings
 
 
 def decide_vad_action(
@@ -50,27 +49,34 @@ def record_until_silence(*, on_recording_done=None) -> tuple[Path, float]:
     min_frames = int(SAMPLE_RATE * float(VAD_MIN_SECONDS))
     no_speech_frames = int(SAMPLE_RATE * float(VAD_NO_SPEECH_SECONDS))
     silence_needed = float(VAD_SILENCE_MS)
+    channels = max(1, int(settings.input_channels))
 
     chunks: list[np.ndarray] = []
     total = 0
     speech_started = False
     silence_ms = 0.0
 
+    # Let PortAudio release the wake-word stream before we reopen the mic.
+    sd.sleep(200)
+
     with sd.InputStream(
         samplerate=SAMPLE_RATE,
-        channels=CHANNELS,
+        channels=channels,
         dtype="float32",
         device=settings.device,
         blocksize=chunk,
     ) as stream:
+        # Discard ~160ms of startup junk / AGC settle.
+        warmup = max(1, int(SAMPLE_RATE * 0.16) // chunk)
+        for _ in range(warmup):
+            stream.read(chunk)
+
         while total < max_frames:
             data, _overflowed = stream.read(chunk)
-            data = np.squeeze(np.asarray(data, dtype=np.float32))
-            if data.ndim > 1:
-                data = data[:, 0]
-            chunks.append(np.array(data, copy=True))
-            total += int(data.size)
-            rms = audio_rms(data)
+            mono = apply_mic_gain(data, settings.gain)
+            chunks.append(mono)
+            total += int(mono.size)
+            rms = audio_rms(mono)
             action = decide_vad_action(
                 rms=rms,
                 speech_started=speech_started,
@@ -97,6 +103,12 @@ def record_until_silence(*, on_recording_done=None) -> tuple[Path, float]:
 
     audio = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
     energy = audio_rms(audio)
+    if not speech_started:
+        print(
+            f"[MIC] No speech detected (rms={energy:.4f}, gate={speech_rms:.4f}, "
+            f"device={settings.device}, ch={channels}, gain={settings.gain})",
+            flush=True,
+        )
     tmp = tempfile.NamedTemporaryFile(prefix="jarvis_", suffix=".wav", delete=False)
     path = Path(tmp.name)
     tmp.close()

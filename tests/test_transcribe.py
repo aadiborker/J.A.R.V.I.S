@@ -35,6 +35,15 @@ def test_spurious_you_and_thank_you():
     assert is_spurious_transcript("open notepad") is False
 
 
+def test_soft_spurious_goodbye_depends_on_energy():
+    # Quiet clip — classic Whisper silence hallucination.
+    assert is_spurious_transcript("Goodbye.", energy=0.005) is True
+    assert clean_transcript("Goodbye.", energy=0.005) == ""
+    # Loud clip — keep so real session-end "goodbye" still works.
+    assert is_spurious_transcript("Goodbye.", energy=0.05) is False
+    assert clean_transcript("Goodbye.", energy=0.05) == "Goodbye."
+
+
 def test_ensure_whisper_ready_missing_bin(monkeypatch, tmp_path):
     missing = tmp_path / "nope.exe"
     model = tmp_path / "model.bin"

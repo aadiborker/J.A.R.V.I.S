@@ -10,3 +10,4 @@ data/memory.json
 .pytest_cache/
 .mypy_cache/
 desktop/node_modules/
+tmp/

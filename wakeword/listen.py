@@ -56,24 +56,27 @@ def _score_for_wakeword(prediction: dict[str, Any]) -> float:
 
 
 def play_wakeup_chime() -> None:
-    """Short confirmation tone after wake-word detection."""
-    duration = 0.12
-    t = np.linspace(0, duration, int(SAMPLE_RATE * duration), endpoint=False)
-    tone = 0.2 * np.sin(2 * np.pi * 880 * t).astype(np.float32)
-    sd.play(tone, samplerate=SAMPLE_RATE)
-    sd.wait()
+    """Short confirmation tone after wake-word detection (avoid sounddevice I/O)."""
+    try:
+        import winsound
+
+        winsound.Beep(880, 120)
+    except Exception:  # noqa: BLE001
+        # Fallback: skip chime rather than risk stealing the mic stream.
+        pass
 
 
-def _to_int16_mono(frame: np.ndarray) -> np.ndarray:
+def _to_int16_mono(frame: np.ndarray, *, gain: float = 1.0) -> np.ndarray:
+    """Mix channels, apply gain, return PCM16 mono for openWakeWord."""
+    from stt.mic_profile import apply_mic_gain
+
     audio = np.asarray(frame)
-    if audio.ndim > 1:
-        audio = audio[:, 0]
-    audio = np.squeeze(audio)
-    if audio.dtype != np.int16:
-        # sounddevice may deliver float; convert to PCM16
-        clipped = np.clip(audio.astype(np.float32), -1.0, 1.0)
-        audio = (clipped * 32767.0).astype(np.int16)
-    return audio
+    if audio.dtype == np.int16:
+        audio = audio.astype(np.float32) / 32767.0
+    else:
+        audio = audio.astype(np.float32)
+    mono = apply_mic_gain(audio, gain)
+    return (np.clip(mono, -1.0, 1.0) * 32767.0).astype(np.int16)
 
 
 def wait_for_wake_word(
@@ -121,16 +124,20 @@ def wait_for_wake_word(
     try:
         from stt.mic_profile import resolve_mic_settings
 
-        mic_device = resolve_mic_settings().device
+        settings = resolve_mic_settings()
+        mic_device = settings.device if settings.device is not None else INPUT_DEVICE
+        channels = max(1, int(settings.input_channels))
+        gain = float(settings.gain)
     except Exception:  # noqa: BLE001
         mic_device = INPUT_DEVICE
-    if mic_device is None:
-        mic_device = INPUT_DEVICE
+        channels = 1
+        gain = 1.0
 
+    detected: float | None = None
     with sd.InputStream(
         samplerate=SAMPLE_RATE,
-        channels=1,
-        dtype="int16",
+        channels=channels,
+        dtype="float32",
         blocksize=chunk,
         device=mic_device,
     ) as stream:
@@ -140,7 +147,7 @@ def wait_for_wake_word(
             raw, overflowed = stream.read(chunk)
             if overflowed and show_scores:
                 print("Wake-word mic overflow (audio glitch); continuing...")
-            frame = _to_int16_mono(raw)
+            frame = _to_int16_mono(raw, gain=gain)
             if wakeword_pause_event is not None and wakeword_pause_event.is_set():
                 continue
             prediction = oww.predict(frame)
@@ -150,12 +157,22 @@ def wait_for_wake_word(
 
             # ~2s at 80ms chunks
             if show_scores and frames_since_log >= 25:
-                print(f"  listening… peak score={best:.3f} (need ≥ {limit:.2f})")
+                print(f"  listening... peak score={best:.3f} (need >= {limit:.2f})")
                 frames_since_log = 0
                 best = 0.0
 
             if score >= limit:
-                if on_detect is not None:
-                    on_detect()
-                reset_model(oww)
-                return score
+                # Exit `with` so the InputStream fully releases before TTS/STT.
+                detected = float(score)
+                break
+
+    if detected is None:
+        return None
+    try:
+        sd.stop()
+    except Exception:  # noqa: BLE001
+        pass
+    if on_detect is not None:
+        on_detect()
+    reset_model(oww)
+    return detected

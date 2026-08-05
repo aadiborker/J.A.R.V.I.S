@@ -1,96 +1,157 @@
-# J.A.R.V.I.S — Phase 1–6 (Wake + STT + Groq + TTS + tools + browser)
+# J.A.R.V.I.S
 
-Say **hey jarvis**, then speak your request. Local wake word + STT + TTS; Groq for replies.
-Browser tools: open YouTube, search YouTube, open http(s) links.
-Desktop apps + system controls (RAM/CPU, volume, mute, lock, screenshot) work locally.
+Local Windows voice assistant: say **hey jarvis**, speak a request, get a spoken reply.
+
+- **Local:** wake word (openWakeWord), STT (whisper.cpp), TTS (Edge neural online / Piper offline)
+- **Cloud:** Groq LLM (free tier)
+- **Tools:** time/timers, browser/YouTube, allowlisted apps, system status (RAM/CPU/volume/lock/screenshot), simple memory
 
 ## Prerequisites
 
 - Windows x64
 - Python 3.10+
-- Working microphone and speakers/earphones
-- Free Groq API key from https://console.groq.com/keys
+- Microphone + speakers (earphones/headset mic recommended)
+- Free Groq API key: https://console.groq.com/keys
+- Optional for HUD: Node.js 18+ and npm
 
-## One-time setup
+Large binaries (`vendor/whisper`, `models/`) are **not** in git — download them after clone (steps below).
 
-1. `pip install -r requirements.txt`
-2. Whisper: put `whisper-cli.exe` + DLLs in `vendor/whisper/`, and `ggml-base.en.bin` in `models/`
-3. Piper: `python -m piper.download_voices en_US-lessac-medium --download-dir models\piper`
-4. Wake word models download automatically on first run
-5. Copy `.env.example` → `.env` and set `GROQ_API_KEY`
+## Clone and setup
 
-## Easy launch
-
-### Lite mode (lower RAM — recommended day-to-day)
-
-No Electron HUD. Defer Piper voice load until first speak; idle sleep pauses network/power monitors after 15 minutes quiet.
-
-```bat
-scripts\start_jarvis.bat
+```powershell
+git clone https://github.com/aadiborker/J.A.R.V.I.S.git
+cd J.A.R.V.I.S
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
 ```
 
-Or: `python main.py`
+### 1. Environment
 
-Mic tip: `config.py` has `MIC_PROFILE = "laptop"` (more sensitive for the built-in array). For a headset mic, set `MIC_PROFILE = "headset"`. List devices:
+```powershell
+copy .env.example .env
+```
+
+Edit `.env` and set:
+
+```
+GROQ_API_KEY=gsk_your_key_here
+```
+
+### 2. Whisper STT (required)
+
+1. Download [whisper.cpp Windows x64 release](https://github.com/ggml-org/whisper.cpp/releases) (`whisper-bin-x64.zip`).
+2. Extract so you have:
+   - `vendor/whisper/whisper-cli.exe`
+   - matching DLLs in the same folder
+3. Download the English model into `models/`:
+
+```powershell
+mkdir models -Force
+curl.exe -L -o models\ggml-small.en.bin "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin"
+```
+
+(`ggml-base.en.bin` also works if you point `WHISPER_MODEL` in `config.py` at it.)
+
+### 3. Piper TTS fallback (required)
+
+```powershell
+python -m piper.download_voices en_US-lessac-medium --download-dir models\piper
+```
+
+### 4. Wake word
+
+No manual download — openWakeWord fetches pretrained **hey jarvis** on first run (needs network once).
+
+### 5. Microphone
+
+Earphones / USB headset generally work best. Built-in laptop arrays are quieter and less reliable.
 
 ```powershell
 python -c "import sounddevice as sd; print(sd.query_devices())"
 ```
 
-Set `INPUT_DEVICE = <id>` in `config.py` if Windows picks the wrong mic.
+In `config.py`:
 
-### HUD (Electron UI)
+- `MIC_PROFILE = "headset"` — earphones / external mic (default)
+- `MIC_PROFILE = "laptop"` — built-in array (higher gain)
+- `INPUT_DEVICE = None` — Windows default mic (recommended after clone)
+- Or set `INPUT_DEVICE = <id>` to force a device from the list above
 
-```bat
-scripts\start_jarvis_ui.bat
-```
-
-### Desktop shortcut
-
-```powershell
-powershell -ExecutionPolicy Bypass -File ".\scripts\create_desktop_shortcut.ps1"
-```
-
-Then double-click **J.A.R.V.I.S** on your Desktop.
-
-### Start on Windows login (optional)
+Optional mic check:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File ".\scripts\install_autostart.ps1"
+python scripts\test_mic.py
 ```
 
-Disable later:
+### 6. Optional Electron HUD
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File ".\scripts\uninstall_autostart.ps1"
+cd desktop
+npm install
+cd ..
 ```
 
-HUD mode: closing the window hides to the **system tray** (right-click tray → Quit to fully stop). A Python console may also appear while the backend runs.
+## Run
 
-Terminal-only: close that console or Ctrl+C to stop.
-
-## Manual run
-
-```powershell
-python main.py
-```
-
-Or:
+**Lite (terminal only — recommended):**
 
 ```powershell
 .\scripts\start_jarvis.bat
 ```
 
+or:
+
+```powershell
+python main.py
+```
+
+**With HUD:**
+
+```powershell
+.\scripts\start_jarvis_ui.bat
+```
+
+Stop with `Ctrl+C` in the console (HUD: tray → Quit).
+
+There is **no** Windows login autostart in this repo. Launch only when you want it.
+
 ## Usage
 
-1. Say **hey jarvis** (chime)
-2. Keep talking turn-by-turn without repeating the wake word
-3. Say **goodbye** / **stop listening**, or stay quiet ~30s, to end the session
+1. Say **hey jarvis** clearly, then pause
+2. After the cue, speak your request
+3. Keep talking turn-by-turn without the wake word
+4. Say **goodbye** / **stop listening**, or stay quiet ~30s, to return to wake-word mode
 
-Tune `WAKEWORD_THRESHOLD` and `SESSION_SILENCE_SECONDS` in `config.py`.
+Useful `config.py` knobs:
+
+| Setting | Purpose |
+|---------|---------|
+| `WAKEWORD_THRESHOLD` | Lower if wake misses; raise if false wakes |
+| `STT_LISTEN_SECONDS` | How long each turn records |
+| `MIC_GAIN_LAPTOP` / `MIC_GAIN_HEADSET` | Amplify quiet mics |
+| `EDGE_VOICE` | Online TTS voice (default British male) |
 
 ## Tests
 
 ```powershell
 python -m pytest tests -v
 ```
+
+## Project layout (high level)
+
+```
+main.py           # entrypoint
+config.py         # all tunables
+stt/              # mic + Whisper
+wakeword/         # hey jarvis
+tts/              # Edge + Piper
+llm/              # Groq
+tools/            # timers, browser, apps, system, memory
+desktop/          # optional Electron HUD
+scripts/          # start_jarvis.bat, start_jarvis_ui.bat, test_mic.py
+```
+
+## License / notes
+
+Personal project. Keep `.env` private — never commit API keys.

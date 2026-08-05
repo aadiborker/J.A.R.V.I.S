@@ -37,8 +37,6 @@ _SPURIOUS_TRANSCRIPTS = frozenset(
         "thanks for watching",
         "thank you for watching",
         "thanks for watching.",
-        "bye",
-        "goodbye",
         "subtitle",
         "subtitles",
         "subtitles by",
@@ -59,6 +57,25 @@ _SPURIOUS_TRANSCRIPTS = frozenset(
         ".",
         "...",
     }
+)
+
+# Only treat as silence-hallucinations when the clip is quiet. Loud "goodbye" is
+# usually real (or TTS echo — settle time handles that); dropping loud ones made
+# Jarvis look like it wasn't listening.
+_SOFT_SPURIOUS_TRANSCRIPTS = frozenset(
+    {
+        "bye",
+        "goodbye",
+        "good bye",
+        "good night",
+        "goodnight",
+    }
+)
+_SOFT_SPURIOUS_MAX_RMS = 0.02
+
+_WHISPER_PROMPT = (
+    "Voice commands to Jarvis: system status, what time is it, "
+    "open notepad, set a timer, remember my name."
 )
 
 
@@ -87,21 +104,25 @@ def normalize_transcript_key(text: str) -> str:
     return t
 
 
-def is_spurious_transcript(text: str) -> bool:
+def is_spurious_transcript(text: str, *, energy: float | None = None) -> bool:
     """True for empty / known Whisper silence hallucinations."""
     key = normalize_transcript_key(text)
     if not key:
         return True
     if key in _SPURIOUS_TRANSCRIPTS:
         return True
+    if key in _SOFT_SPURIOUS_TRANSCRIPTS:
+        # Quiet clip → likely hallucination; louder → keep (session can end on goodbye).
+        if energy is None or float(energy) < _SOFT_SPURIOUS_MAX_RMS:
+            return True
     # Very short single tokens that aren't useful commands
     if len(key) <= 2 and key.isalpha():
         return True
     return False
 
 
-def clean_transcript(text: str) -> str:
-    if is_spurious_transcript(text):
+def clean_transcript(text: str, *, energy: float | None = None) -> str:
+    if is_spurious_transcript(text, energy=energy):
         return ""
     return (text or "").strip()
 
@@ -124,8 +145,8 @@ def ensure_whisper_ready() -> None:
     if not Path(WHISPER_MODEL).is_file():
         raise FileNotFoundError(
             f"Whisper model not found at {WHISPER_MODEL}. "
-            "Download ggml-base.en.bin from "
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin "
+            "Download ggml-small.en.bin from "
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin "
             "into the models/ folder."
         )
 
@@ -142,19 +163,44 @@ def write_wav(path: Path | str, audio: np.ndarray, sample_rate: int = SAMPLE_RAT
 
 def record_audio(seconds: float | None = None) -> tuple[Path, float]:
     """Record mic audio for a fixed duration. Returns (wav_path, rms_energy)."""
+    from stt.mic_profile import apply_mic_gain
+
     settings = resolve_mic_settings()
     duration = float(RECORD_SECONDS if seconds is None else seconds)
     frames = int(duration * SAMPLE_RATE)
-    audio = sd.rec(
-        frames,
-        samplerate=SAMPLE_RATE,
-        channels=CHANNELS,
-        dtype="float32",
-        device=settings.device if settings.device is not None else INPUT_DEVICE,
+    channels = max(1, int(settings.input_channels))
+    device = settings.device if settings.device is not None else INPUT_DEVICE
+
+    def _capture_once() -> tuple[np.ndarray, float]:
+        # Ensure no leftover InputStream (wake word) owns the device.
+        try:
+            sd.stop()
+        except Exception:  # noqa: BLE001
+            pass
+        sd.sleep(80)
+        audio = sd.rec(
+            frames,
+            samplerate=SAMPLE_RATE,
+            channels=channels,
+            dtype="float32",
+            device=device,
+        )
+        sd.wait()
+        audio = apply_mic_gain(audio, settings.gain)
+        return audio, audio_rms(audio)
+
+    audio, energy = _capture_once()
+    # Windows/Intel array sometimes returns a dead/near-dead buffer after wake/TTS.
+    if energy < max(1e-4, float(settings.silence_rms) * 0.25):
+        print("[MIC] weak/dead buffer — retrying capture once...", flush=True)
+        sd.sleep(300)
+        audio, energy = _capture_once()
+
+    print(
+        f"[MIC] recorded {duration:.1f}s rms={energy:.4f} "
+        f"gate={settings.silence_rms:.4f} device={device} ch={channels} gain={settings.gain}",
+        flush=True,
     )
-    sd.wait()
-    audio = np.squeeze(audio)
-    energy = audio_rms(audio)
     tmp = tempfile.NamedTemporaryFile(prefix="jarvis_", suffix=".wav", delete=False)
     tmp_path = Path(tmp.name)
     tmp.close()
@@ -180,7 +226,7 @@ def warmup_whisper() -> None:
         path.unlink(missing_ok=True)
 
 
-def transcribe(wav_path: Path | str) -> str:
+def transcribe(wav_path: Path | str, *, energy: float | None = None) -> str:
     ensure_whisper_ready()
     wav_path = Path(wav_path).resolve()
     if not wav_path.is_file():
@@ -196,6 +242,14 @@ def transcribe(wav_path: Path | str) -> str:
         "-np",
         "-l",
         "en",
+        "-tp",
+        "0",
+        "-nf",
+        "-sns",
+        "-nth",
+        "0.75",
+        "--prompt",
+        _WHISPER_PROMPT,
     ]
     result = subprocess.run(
         cmd,
@@ -209,7 +263,11 @@ def transcribe(wav_path: Path | str) -> str:
         raise RuntimeError(
             f"whisper-cli failed ({result.returncode}):\n{result.stderr.strip()}"
         )
-    return clean_transcript(parse_whisper_stdout(result.stdout))
+    raw = parse_whisper_stdout(result.stdout)
+    cleaned = clean_transcript(raw, energy=energy)
+    if raw and not cleaned:
+        print(f"[MIC] dropped spurious transcript: {raw!r}", flush=True)
+    return cleaned
 
 
 def transcribe_microphone(
@@ -217,18 +275,32 @@ def transcribe_microphone(
     *,
     on_recording_done=None,
 ) -> str:
+    from config import MIC_SETTLE_MS, STT_LISTEN_SECONDS, STT_USE_VAD
+
     settings = resolve_mic_settings()
-    if seconds is None:
+    # Give Windows time to unduck the mic after TTS / wake chime.
+    settle = max(0, int(MIC_SETTLE_MS))
+    if settle:
+        sd.sleep(settle)
+
+    if seconds is not None:
+        wav_path, energy = record_audio(seconds=seconds)
+        if on_recording_done is not None:
+            on_recording_done()
+    elif STT_USE_VAD:
         from stt.vad_record import record_until_silence
 
         wav_path, energy = record_until_silence(on_recording_done=on_recording_done)
     else:
-        wav_path, energy = record_audio(seconds=seconds)
+        wav_path, energy = record_audio(seconds=float(STT_LISTEN_SECONDS))
         if on_recording_done is not None:
             on_recording_done()
     try:
-        if energy < float(settings.silence_rms):
+        # Soft gate: still try Whisper if we have any real energy (arrays vary).
+        gate = float(settings.silence_rms) * 0.5
+        if energy < gate:
+            print(f"[MIC] below energy gate ({energy:.4f} < {gate:.4f})", flush=True)
             return ""
-        return transcribe(wav_path)
+        return transcribe(wav_path, energy=energy)
     finally:
         wav_path.unlink(missing_ok=True)
