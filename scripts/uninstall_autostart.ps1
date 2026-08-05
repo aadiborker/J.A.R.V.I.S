@@ -2,6 +2,7 @@
 $ErrorActionPreference = "Stop"
 
 $taskName = "J.A.R.V.I.S"
+$watchdogTaskName = "J.A.R.V.I.S Hotkey Watchdog"
 $startupLnk = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup\J.A.R.V.I.S.lnk"
 
 $removed = $false
@@ -9,6 +10,12 @@ $removed = $false
 if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
     Write-Host "Removed scheduled task: $taskName"
+    $removed = $true
+}
+
+if (Get-ScheduledTask -TaskName $watchdogTaskName -ErrorAction SilentlyContinue) {
+    Unregister-ScheduledTask -TaskName $watchdogTaskName -Confirm:$false
+    Write-Host "Removed scheduled task: $watchdogTaskName"
     $removed = $true
 }
 

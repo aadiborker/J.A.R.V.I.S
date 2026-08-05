@@ -6,7 +6,8 @@ from net.connectivity import is_online
 from tools.simple_commands import try_handle_simple
 
 OFFLINE_CHAT_REPLY = (
-    "I'm on lower modules only right now — time and timers still work."
+    "I'm on lower modules only right now — time, timers, apps, and "
+    "system controls still work."
 )
 
 

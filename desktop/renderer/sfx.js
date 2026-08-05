@@ -116,6 +116,11 @@
     offline() {
       tone({ freq: 400, freqEnd: 180, type: "triangle", duration: 0.22, gain: 0.045 });
     },
+    heard() {
+      // Soft confirmation that the mic clip finished — before transcript text.
+      tone({ freq: 520, type: "sine", duration: 0.07, gain: 0.05 });
+      tone({ freq: 780, type: "sine", duration: 0.1, gain: 0.045, delay: 0.06 });
+    },
   };
 
   window.jarvisSfx = sfx;

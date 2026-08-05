@@ -53,6 +53,25 @@ class TimerManager:
         self._speak_fn = speak_fn
         self._wakeword_pause_event = wakeword_pause_event
 
+    @property
+    def wakeword_pause_event(self) -> threading.Event:
+        return self._wakeword_pause_event
+
+    def pause_wakeword_for(self, seconds: float) -> None:
+        """Temporarily ignore wake-word hits (e.g. while YouTube audio is loud)."""
+        seconds_f = max(0.0, float(seconds))
+        if seconds_f <= 0:
+            return
+        self._wakeword_pause_event.set()
+
+        def _clear() -> None:
+            time.sleep(seconds_f)
+            self._wakeword_pause_event.clear()
+
+        threading.Thread(
+            target=_clear, name="wakeword-pause-media", daemon=True
+        ).start()
+
     def set_timer(
         self,
         seconds: int | float,

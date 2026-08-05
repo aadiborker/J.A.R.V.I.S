@@ -3,7 +3,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from stt.transcribe import ensure_whisper_ready, parse_whisper_stdout, write_wav
+from stt.transcribe import (
+    clean_transcript,
+    ensure_whisper_ready,
+    is_spurious_transcript,
+    parse_whisper_stdout,
+    write_wav,
+)
 
 
 def test_parse_whisper_stdout_strips_noise():
@@ -17,6 +23,16 @@ hello jarvis what time is it
 
 def test_parse_whisper_stdout_empty():
     assert parse_whisper_stdout("whisper_init...\nsystem_info: x\n") == ""
+
+
+def test_spurious_you_and_thank_you():
+    assert is_spurious_transcript("you") is True
+    assert is_spurious_transcript("You.") is True
+    assert is_spurious_transcript("Thank you") is True
+    assert is_spurious_transcript("  YOU  ") is True
+    assert clean_transcript("you") == ""
+    assert clean_transcript("what time is it") == "what time is it"
+    assert is_spurious_transcript("open notepad") is False
 
 
 def test_ensure_whisper_ready_missing_bin(monkeypatch, tmp_path):

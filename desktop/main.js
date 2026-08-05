@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage } = require("electr
 const path = require("path");
 const fs = require("fs");
 const { spawn, spawnSync } = require("child_process");
+const WebSocket = require("ws");
 
 const PROJECT_ROOT = path.resolve(__dirname, "..");
 const WS_URL = process.env.JARVIS_WS_URL || "ws://127.0.0.1:8765";
@@ -18,6 +19,7 @@ let mainWindow = null;
 let pythonProc = null;
 let tray = null;
 let isQuitting = false;
+let bridgeSocket = null;
 
 function trayIcon() {
   const iconPath = path.join(__dirname, "assets", "tray.png");
@@ -53,6 +55,26 @@ function createTray() {
   tray.on("double-click", () => showWindow());
 }
 
+function connectBridgeSocket() {
+  if (bridgeSocket && (bridgeSocket.readyState === WebSocket.OPEN || bridgeSocket.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+  try {
+    bridgeSocket = new WebSocket(WS_URL);
+    bridgeSocket.on("error", () => {
+      /* backend may still be booting */
+    });
+    bridgeSocket.on("close", () => {
+      bridgeSocket = null;
+      if (!isQuitting) {
+        setTimeout(connectBridgeSocket, 1500);
+      }
+    });
+  } catch (_) {
+    setTimeout(connectBridgeSocket, 1500);
+  }
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 960,
@@ -62,7 +84,7 @@ function createWindow() {
     frame: false,
     transparent: false,
     backgroundColor: "#05080f",
-    alwaysOnTop: true,
+    alwaysOnTop: false,
     title: "J.A.R.V.I.S",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -171,6 +193,7 @@ if (gotLock) {
     createWindow();
     createTray();
     startPython();
+    connectBridgeSocket();
 
     app.on("activate", () => {
       showWindow();
@@ -198,6 +221,5 @@ if (gotLock) {
     isQuitting = true;
     stopPython();
     if (mainWindow) mainWindow.close();
-    app.quit();
   });
 }

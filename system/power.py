@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ctypes
-import random
 import threading
 from dataclasses import dataclass
 from typing import Callable
@@ -9,15 +8,7 @@ from typing import Callable
 from config import POWER_CHECK_INTERVAL_SECONDS, POWER_DEBOUNCE_CHECKS
 
 POWER_UNAVAILABLE = "Power status unavailable."
-
-_POWER_JOKES = (
-    "Why did the computer go to the doctor? It had a virus.",
-    "I would tell you a UDP joke, but you might not get it.",
-    "There are only 10 kinds of people: those who understand binary and those who don't.",
-    "My battery and I have commitment issues — it keeps leaving me at 1 percent.",
-    "I asked the charger how it was doing. It said it was feeling very positive.",
-    "Why was the keyboard locked? Because it had a shift key and trust issues.",
-)
+CHARGER_HINT = "Please connect a charger for longer usability."
 
 
 @dataclass(frozen=True)
@@ -72,12 +63,7 @@ def get_power_status() -> PowerStatus:
         return PowerStatus(percent=None, charging=None, available=False)
 
 
-def pick_power_joke(*, rng: random.Random | None = None) -> str:
-    picker = rng.choice if rng is not None else random.choice
-    return picker(_POWER_JOKES)
-
-
-def format_boot_power_line(status: PowerStatus, joke: str) -> str:
+def format_boot_power_line(status: PowerStatus) -> str:
     if not status.available:
         return POWER_UNAVAILABLE
 
@@ -91,21 +77,22 @@ def format_boot_power_line(status: PowerStatus, joke: str) -> str:
         parts.append("Charging.")
     elif status.charging is False:
         parts.append("Not charging.")
-
-    cleaned = (joke or "").strip()
-    if cleaned:
-        parts.append(f"Here's a quick one: {cleaned}")
+        parts.append(CHARGER_HINT)
     return " ".join(parts)
 
 
 def format_power_transition_line(*, charging: bool, percent: int | None) -> str:
     if charging:
         head = "Power connected."
-    else:
-        head = "Running on battery."
+        if percent is not None:
+            return f"{head} Power at {percent} percent."
+        return head
+
+    parts = ["Running on battery."]
     if percent is not None:
-        return f"{head} Power at {percent} percent."
-    return head
+        parts.append(f"Power at {percent} percent.")
+    parts.append(CHARGER_HINT)
+    return " ".join(parts)
 
 
 def emit_power_ui_payload(status: PowerStatus) -> dict:

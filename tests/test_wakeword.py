@@ -68,3 +68,22 @@ def test_wait_for_wake_word_skips_scoring_while_paused():
 
     assert score >= 0.5
     assert detected_scores == [True]
+
+
+def test_wait_for_wake_word_abort_event():
+    abort = threading.Event()
+
+    class FakeModel:
+        def predict(self, frame):
+            abort.set()
+            return {"hey jarvis": 0.1}
+
+    score = listen_mod.wait_for_wake_word(
+        model=FakeModel(),
+        threshold=0.9,
+        read_chunk=lambda: np.zeros(1280, dtype=np.int16),
+        on_detect=None,
+        abort_event=abort,
+        show_scores=False,
+    )
+    assert score is None

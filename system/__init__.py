@@ -1,4 +1,5 @@
 from system.power import (
+    CHARGER_HINT,
     POWER_UNAVAILABLE,
     PowerMonitor,
     PowerStatus,
@@ -6,10 +7,10 @@ from system.power import (
     format_boot_power_line,
     format_power_transition_line,
     get_power_status,
-    pick_power_joke,
 )
 
 __all__ = [
+    "CHARGER_HINT",
     "POWER_UNAVAILABLE",
     "PowerMonitor",
     "PowerStatus",
@@ -17,5 +18,4 @@ __all__ = [
     "format_boot_power_line",
     "format_power_transition_line",
     "get_power_status",
-    "pick_power_joke",
 ]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -16,6 +17,8 @@ from config import (
     WHISPER_BIN,
     WHISPER_MODEL,
 )
+from stt.mic_profile import resolve_mic_settings
+
 
 _NOISE_PREFIXES = (
     "whisper_",
@@ -23,6 +26,39 @@ _NOISE_PREFIXES = (
     "main:",
     "ggml_",
     "operator():",
+)
+
+# Whisper often invents these on silence / hiss (classic base.en hallucinations).
+_SPURIOUS_TRANSCRIPTS = frozenset(
+    {
+        "you",
+        "thank you",
+        "thanks",
+        "thanks for watching",
+        "thank you for watching",
+        "thanks for watching.",
+        "bye",
+        "goodbye",
+        "subtitle",
+        "subtitles",
+        "subtitles by",
+        "music",
+        "applause",
+        "blank audio",
+        "[blank_audio]",
+        "silence",
+        "uh",
+        "um",
+        "ah",
+        "hmm",
+        "mm",
+        "mhm",
+        "the",
+        "a",
+        "i",
+        ".",
+        "...",
+    }
 )
 
 
@@ -42,6 +78,39 @@ def parse_whisper_stdout(stdout: str) -> str:
             continue
         lines.append(line)
     return " ".join(lines).strip()
+
+
+def normalize_transcript_key(text: str) -> str:
+    t = (text or "").strip().lower()
+    t = re.sub(r"^[\s\"'`]+|[\s\"'`.!?…,;:]+$", "", t)
+    t = re.sub(r"\s+", " ", t)
+    return t
+
+
+def is_spurious_transcript(text: str) -> bool:
+    """True for empty / known Whisper silence hallucinations."""
+    key = normalize_transcript_key(text)
+    if not key:
+        return True
+    if key in _SPURIOUS_TRANSCRIPTS:
+        return True
+    # Very short single tokens that aren't useful commands
+    if len(key) <= 2 and key.isalpha():
+        return True
+    return False
+
+
+def clean_transcript(text: str) -> str:
+    if is_spurious_transcript(text):
+        return ""
+    return (text or "").strip()
+
+
+def audio_rms(audio: np.ndarray) -> float:
+    arr = np.asarray(audio, dtype=np.float32).reshape(-1)
+    if arr.size == 0:
+        return 0.0
+    return float(np.sqrt(np.mean(np.square(arr))))
 
 
 def ensure_whisper_ready() -> None:
@@ -71,7 +140,9 @@ def write_wav(path: Path | str, audio: np.ndarray, sample_rate: int = SAMPLE_RAT
     wavfile.write(str(path), sample_rate, pcm_i16)
 
 
-def record_audio(seconds: float | None = None) -> Path:
+def record_audio(seconds: float | None = None) -> tuple[Path, float]:
+    """Record mic audio for a fixed duration. Returns (wav_path, rms_energy)."""
+    settings = resolve_mic_settings()
     duration = float(RECORD_SECONDS if seconds is None else seconds)
     frames = int(duration * SAMPLE_RATE)
     audio = sd.rec(
@@ -79,15 +150,34 @@ def record_audio(seconds: float | None = None) -> Path:
         samplerate=SAMPLE_RATE,
         channels=CHANNELS,
         dtype="float32",
-        device=INPUT_DEVICE,
+        device=settings.device if settings.device is not None else INPUT_DEVICE,
     )
     sd.wait()
     audio = np.squeeze(audio)
+    energy = audio_rms(audio)
     tmp = tempfile.NamedTemporaryFile(prefix="jarvis_", suffix=".wav", delete=False)
     tmp_path = Path(tmp.name)
     tmp.close()
     write_wav(tmp_path, audio, sample_rate=SAMPLE_RATE)
-    return tmp_path
+    return tmp_path, energy
+
+
+def warmup_whisper() -> None:
+    """One tiny transcription to warm disk/OS caches for whisper-cli."""
+    ensure_whisper_ready()
+    tmp = tempfile.NamedTemporaryFile(prefix="jarvis_warm_", suffix=".wav", delete=False)
+    path = Path(tmp.name)
+    tmp.close()
+    try:
+        # ~0.3s near-silence
+        audio = np.zeros(int(SAMPLE_RATE * 0.3), dtype=np.float32)
+        write_wav(path, audio, sample_rate=SAMPLE_RATE)
+        transcribe(path)
+    except Exception:  # noqa: BLE001
+        # Boot must not fail on warm-up
+        pass
+    finally:
+        path.unlink(missing_ok=True)
 
 
 def transcribe(wav_path: Path | str) -> str:
@@ -119,12 +209,26 @@ def transcribe(wav_path: Path | str) -> str:
         raise RuntimeError(
             f"whisper-cli failed ({result.returncode}):\n{result.stderr.strip()}"
         )
-    return parse_whisper_stdout(result.stdout)
+    return clean_transcript(parse_whisper_stdout(result.stdout))
 
 
-def transcribe_microphone(seconds: float | None = None) -> str:
-    wav_path = record_audio(seconds=seconds)
+def transcribe_microphone(
+    seconds: float | None = None,
+    *,
+    on_recording_done=None,
+) -> str:
+    settings = resolve_mic_settings()
+    if seconds is None:
+        from stt.vad_record import record_until_silence
+
+        wav_path, energy = record_until_silence(on_recording_done=on_recording_done)
+    else:
+        wav_path, energy = record_audio(seconds=seconds)
+        if on_recording_done is not None:
+            on_recording_done()
     try:
+        if energy < float(settings.silence_rms):
+            return ""
         return transcribe(wav_path)
     finally:
         wav_path.unlink(missing_ok=True)

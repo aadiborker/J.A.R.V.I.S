@@ -68,6 +68,8 @@ def _infer_state(text: str) -> str:
         return "speaking"
     if "[think]" in lowered or "thinking" in lowered:
         return "thinking"
+    if "[stt]" in lowered or "transcrib" in lowered or "got it" in lowered:
+        return "thinking"
     if "[idle]" in lowered or "hey jarvis" in lowered:
         return "idle"
     if "[session]" in lowered or "listening" in lowered or "[boot]" in lowered:

@@ -10,6 +10,27 @@ CHANNELS = 1
 RECORD_SECONDS = 5
 INPUT_DEVICE = None  # default system input; set to an int device id to override
 
+# Ignore near-silent clips before Whisper (RMS of float32 samples).
+# Raise if real soft speech is dropped; lower if ambient noise still triggers STT.
+STT_SILENCE_RMS = 0.012
+
+# Mic: "laptop" = quieter array (more permissive silence gate); "headset" = default
+MIC_PROFILE = "laptop"  # laptop | headset
+STT_SILENCE_RMS_LAPTOP = 0.006
+
+# VAD conversation capture (replaces fixed RECORD_SECONDS for session listen)
+VAD_CHUNK_MS = 80
+VAD_SILENCE_MS = 800
+VAD_MIN_SECONDS = 0.4
+VAD_MAX_SECONDS = 10.0
+# Give up if no speech detected within this window (avoid 10s silent waits)
+VAD_NO_SPEECH_SECONDS = 3.0
+# None → use resolve_mic_settings().silence_rms as speech threshold
+VAD_SPEECH_RMS = None
+
+# Lite / idle: pause network+power monitors after quiet period (0 disables)
+IDLE_SLEEP_SECONDS = 900
+
 GROQ_MODEL = "llama-3.1-8b-instant"
 SYSTEM_PROMPT = (
     "You are Jarvis, a warm personal voice assistant speaking out loud. "
@@ -18,7 +39,9 @@ SYSTEM_PROMPT = (
     "Avoid bullet lists, markdown, URLs, and stiff formal phrasing unless asked. "
     "Do not mention that you are an AI model unless asked. "
     "When a timer tool returns an announcement, the user already heard the T-minus "
-    "countdown aloud — give only a brief acknowledgment, don't repeat the countdown."
+    "countdown aloud — give only a brief acknowledgment, don't repeat the countdown. "
+    "For RAM, memory, or CPU questions, call get_system_status and use those numbers. "
+    "For opening desktop apps, use open_app with an allowlisted name only."
 )
 
 # Lessac tends to sound more natural than Ryan for conversational replies.
@@ -79,4 +102,9 @@ NETWORK_DEBOUNCE_CHECKS = 2
 # Power / charge status (boot report + plug/unplug announcements)
 POWER_CHECK_INTERVAL_SECONDS = 15
 POWER_DEBOUNCE_CHECKS = 2
+
+# After YouTube play, leave conversation mode so speaker audio isn't transcribed.
+# Also pause wake-word briefly so the video soundtrack is less likely to false-trigger.
+MEDIA_SESSION_END = True
+MEDIA_WAKEWORD_PAUSE_SECONDS = 45
 

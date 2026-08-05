@@ -1,36 +1,30 @@
 from __future__ import annotations
 
-import random
 import time
 from types import SimpleNamespace
 
 import system.power as power
 
 
-def test_pick_power_joke_returns_known_line():
-    joke = power.pick_power_joke(rng=random.Random(0))
-    assert joke
-    assert joke in power._POWER_JOKES
-
-
 def test_format_boot_power_line_charging():
     status = power.PowerStatus(percent=72, charging=True, available=True)
-    line = power.format_boot_power_line(status, "Test joke.")
-    assert "Power at 72 percent." in line
-    assert "Charging." in line
-    assert "Here's a quick one: Test joke." in line
+    line = power.format_boot_power_line(status)
+    assert line == "Power at 72 percent. Charging."
+    assert power.CHARGER_HINT not in line
 
 
 def test_format_boot_power_line_not_charging():
     status = power.PowerStatus(percent=41, charging=False, available=True)
-    line = power.format_boot_power_line(status, "Nope.")
+    line = power.format_boot_power_line(status)
+    assert "Power at 41 percent." in line
     assert "Not charging." in line
-    assert "41" in line
+    assert power.CHARGER_HINT in line
+    assert "joke" not in line.lower()
 
 
 def test_format_boot_unavailable():
     status = power.PowerStatus(percent=None, charging=None, available=False)
-    assert power.format_boot_power_line(status, "x") == power.POWER_UNAVAILABLE
+    assert power.format_boot_power_line(status) == power.POWER_UNAVAILABLE
 
 
 def test_format_transition_lines():
@@ -38,10 +32,10 @@ def test_format_transition_lines():
         power.format_power_transition_line(charging=True, percent=72)
         == "Power connected. Power at 72 percent."
     )
-    assert (
-        power.format_power_transition_line(charging=False, percent=41)
-        == "Running on battery. Power at 41 percent."
-    )
+    unplugged = power.format_power_transition_line(charging=False, percent=41)
+    assert unplugged.startswith("Running on battery.")
+    assert "Power at 41 percent." in unplugged
+    assert power.CHARGER_HINT in unplugged
 
 
 def test_get_power_status_no_battery():
@@ -71,8 +65,8 @@ def test_power_monitor_debounces_then_fires():
     readings = iter(
         [
             power.PowerStatus(80, False, True),
-            power.PowerStatus(80, True, True),  # blip start
-            power.PowerStatus(81, True, True),  # confirm
+            power.PowerStatus(80, True, True),
+            power.PowerStatus(81, True, True),
             power.PowerStatus(81, True, True),
         ]
     )

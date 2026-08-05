@@ -84,14 +84,15 @@ def wait_for_wake_word(
     on_detect: Callable[[], None] | None = play_wakeup_chime,
     show_scores: bool = True,
     wakeword_pause_event: threading.Event | None = None,
-) -> float:
+    abort_event: threading.Event | None = None,
+) -> float | None:
     """
     Block until the wake word score exceeds threshold.
 
     Uses a continuous InputStream by default. Gappy per-chunk sd.rec() breaks
     openWakeWord's streaming feature pipeline and prevents detection.
 
-    Returns the score that triggered detection.
+    Returns the score that triggered detection, or None if abort_event was set.
     """
     oww = model if model is not None else get_model()
     reset_model(oww)
@@ -100,6 +101,8 @@ def wait_for_wake_word(
     # Injected reader path (unit tests)
     if read_chunk is not None:
         while True:
+            if abort_event is not None and abort_event.is_set():
+                return None
             frame = _to_int16_mono(read_chunk())
             if wakeword_pause_event is not None and wakeword_pause_event.is_set():
                 continue
@@ -115,14 +118,25 @@ def wait_for_wake_word(
     frames_since_log = 0
     best = 0.0
 
+    try:
+        from stt.mic_profile import resolve_mic_settings
+
+        mic_device = resolve_mic_settings().device
+    except Exception:  # noqa: BLE001
+        mic_device = INPUT_DEVICE
+    if mic_device is None:
+        mic_device = INPUT_DEVICE
+
     with sd.InputStream(
         samplerate=SAMPLE_RATE,
         channels=1,
         dtype="int16",
         blocksize=chunk,
-        device=INPUT_DEVICE,
+        device=mic_device,
     ) as stream:
         while True:
+            if abort_event is not None and abort_event.is_set():
+                return None
             raw, overflowed = stream.read(chunk)
             if overflowed and show_scores:
                 print("Wake-word mic overflow (audio glitch); continuing...")

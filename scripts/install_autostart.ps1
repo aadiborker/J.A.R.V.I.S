@@ -3,6 +3,7 @@
 $ErrorActionPreference = "Stop"
 
 $taskName = "J.A.R.V.I.S"
+$watchdogTaskName = "J.A.R.V.I.S Hotkey Watchdog"
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $desktopApp = Join-Path $projectRoot "desktop"
 $electronExe = Join-Path $desktopApp "node_modules\electron\dist\electron.exe"
@@ -15,6 +16,12 @@ if (-not (Test-Path $electronExe)) {
 if (Test-Path $startupLnk) {
     Remove-Item $startupLnk -Force
     Write-Host "Removed delayed Startup shortcut: $startupLnk"
+}
+
+# Remove legacy hotkey watchdog if present
+if (Get-ScheduledTask -TaskName $watchdogTaskName -ErrorAction SilentlyContinue) {
+    Unregister-ScheduledTask -TaskName $watchdogTaskName -Confirm:$false
+    Write-Host "Removed legacy hotkey watchdog: $watchdogTaskName"
 }
 
 $action = New-ScheduledTaskAction -Execute $electronExe -Argument "." -WorkingDirectory $desktopApp

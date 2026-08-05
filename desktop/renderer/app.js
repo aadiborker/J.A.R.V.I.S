@@ -433,7 +433,14 @@ function handleEvent(evt) {
       break;
     case "status":
       setStatus(evt.detail || evt.state || "", evt.state || "idle");
-      playStateSfx(evt.state || "idle");
+      {
+        const detail = String(evt.detail || "").toLowerCase();
+        if (detail.includes("[stt]") || detail.includes("got it")) {
+          playSfx("heard");
+        } else {
+          playStateSfx(evt.state || "idle");
+        }
+      }
       break;
     case "transcript":
       addLine(evt.role || "system", evt.text || "");

@@ -19,6 +19,11 @@ class UiBridge:
         self._lock = threading.Lock()
         self._started = threading.Event()
         self.last_event: dict[str, Any] | None = None
+        self._on_client_event: Any = None
+
+    def set_client_handler(self, handler: Any) -> None:
+        """Register callback for inbound HUD/client JSON messages (runs on WS thread)."""
+        self._on_client_event = handler
 
     @property
     def is_running(self) -> bool:
@@ -93,8 +98,18 @@ class UiBridge:
             with self._lock:
                 self._clients.add(websocket)
             try:
-                # Keep connection open; HUD is receive-only in v1.
-                await websocket.wait_closed()
+                async for raw in websocket:
+                    if self._on_client_event is None:
+                        continue
+                    try:
+                        data = json.loads(raw)
+                    except Exception:  # noqa: BLE001
+                        continue
+                    if isinstance(data, dict):
+                        try:
+                            self._on_client_event(data)
+                        except Exception as exc:  # noqa: BLE001
+                            print(f"UI client handler error: {exc}")
             finally:
                 with self._lock:
                     self._clients.discard(websocket)
